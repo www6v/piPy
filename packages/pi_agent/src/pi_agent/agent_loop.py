@@ -91,30 +91,30 @@ async def _execute_tools(
 
     async def run_one(tool_call: ToolCall) -> tuple[ToolResultMessage, AgentToolResult]:
         tool = by_name.get(tool_call.name)
+        await _emit(
+            emit,
+            ToolExecutionStartEvent(
+                tool_call_id=tool_call.id,
+                tool_name=tool_call.name,
+                args=tool_call.arguments,
+            ),
+        )
         if tool is None:
             result = AgentToolResult(
                 content=[TextContent(text=f"Unknown tool: {tool_call.name}")],
                 is_error=True,
             )
         else:
-            await _emit(
-                emit,
-                ToolExecutionStartEvent(
-                    tool_call_id=tool_call.id,
-                    tool_name=tool_call.name,
-                    args=tool_call.arguments,
-                ),
-            )
             result = await _execute_tool(tool, tool_call, signal)
-            await _emit(
-                emit,
-                ToolExecutionEndEvent(
-                    tool_call_id=tool_call.id,
-                    tool_name=tool_call.name,
-                    result=result,
-                    is_error=result.is_error,
-                ),
-            )
+        await _emit(
+            emit,
+            ToolExecutionEndEvent(
+                tool_call_id=tool_call.id,
+                tool_name=tool_call.name,
+                result=result,
+                is_error=result.is_error,
+            ),
+        )
         message = ToolResultMessage(
             tool_call_id=tool_call.id,
             tool_name=tool_call.name,
@@ -162,6 +162,7 @@ async def _stream_assistant(
         llm_context,
         tools=llm_context.tools,
         api_key=api_key,
+        request_headers=config.request_headers,
         signal=signal,
     )
     if asyncio.iscoroutine(response):

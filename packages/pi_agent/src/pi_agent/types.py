@@ -156,6 +156,7 @@ class AgentLoopConfig:
     model: Model
     convert_to_llm: ConvertToLlm
     api_key: str | None = None
+    request_headers: dict[str, str] | None = None
     tool_execution: ToolExecutionMode = "parallel"
     get_api_key: Callable[[str], str | None | Awaitable[str | None]] | None = None
 

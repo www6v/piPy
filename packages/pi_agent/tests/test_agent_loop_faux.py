@@ -4,6 +4,7 @@ from pi_agent.agent_loop import prompt_text, run_agent_loop
 from pi_agent.messages import convert_to_llm
 from pi_agent.types import AgentContext, AgentLoopConfig
 from pi_ai.models import get_model
+from pi_ai.providers import faux as faux_mod
 from pi_ai.providers.faux import (
     faux_assistant_message,
     faux_text,
@@ -97,4 +98,45 @@ async def test_agent_loop_with_tool():
         agent_tools=[EchoTool()],
     )
     assert "tool_execution_start" in events
+    assert "tool_execution_end" in events
     assert calls["count"] == 1
+
+
+@pytest.mark.asyncio
+async def test_unknown_tool_emits_execution_events():
+    from pi_ai.providers.faux import faux_tool_call
+
+    register_faux_provider(models=[{"id": "test", "name": "Test"}])
+    faux_mod.set_faux_responses(
+        [
+            faux_assistant_message(
+                [
+                    faux_tool_call(
+                        "missing_tool",
+                        {"x": 1},
+                        tool_id="t-missing",
+                    )
+                ],
+                stop_reason="toolUse",
+            ),
+            faux_assistant_message([faux_text("handled")]),
+        ]
+    )
+
+    events: list[str] = []
+
+    async def emit(event) -> None:
+        events.append(event.type)
+
+    model = get_model("faux", "test")
+    config = AgentLoopConfig(model=model, convert_to_llm=convert_to_llm)
+    context = AgentContext(system_prompt="sys", messages=[], tools=[])
+    await run_agent_loop(
+        [prompt_text("go")],
+        context,
+        config,
+        emit,
+        agent_tools=[],
+    )
+    assert "tool_execution_start" in events
+    assert "tool_execution_end" in events

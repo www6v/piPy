@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import os
 import sys
 from dataclasses import dataclass
 
 from pi_agent.agent import Agent
+from pi_ai.model_registry import get_registry
 from pi_ai.models import get_model
 from pi_ai.types import TextContent
 
@@ -45,15 +47,23 @@ def _ensure_faux_model(model_id: str) -> None:
 
 async def run_print_mode(options: PrintModeOptions) -> int:
     provider, _, model_id = _parse_model(options.model, options.provider)
+    registry = get_registry()
+    if registry.load_error:
+        print(f"Warning: {registry.load_error}", file=sys.stderr)
     if provider == "faux":
         _ensure_faux_model(model_id)
     model = get_model(provider, model_id)
-    cwd = "."
+    api_key, request_headers = registry.resolve_auth(
+        model,
+        api_key_override=options.api_key,
+    )
+    cwd = os.getcwd()
     agent = Agent(
         system_prompt=options.system_prompt or DEFAULT_SYSTEM,
         model=model,
         tools=create_tools_for_names(cwd, options.tools),
-        api_key=options.api_key,
+        api_key=api_key,
+        request_headers=request_headers,
     )
 
     final_text = ""

@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from pi_ai.providers import faux as faux_provider
+from pi_ai.providers.anthropic import stream_anthropic
 from pi_ai.providers.openai import stream_openai
 from pi_ai.types import (
     AssistantMessage,
@@ -89,6 +90,7 @@ def stream_simple(
     *,
     tools: list[Any] | None = None,
     api_key: str | None = None,
+    request_headers: dict[str, str] | None = None,
     signal: Any = None,
     client: Any = None,
 ) -> AssistantMessageStream:
@@ -99,14 +101,28 @@ def stream_simple(
     )
     if model.provider == "faux":
         return AssistantMessageStream(_events=_faux_events(model, ctx))
-    if model.provider == "openai":
+    if model.api == "openai-completions":
         return AssistantMessageStream(
             _events=stream_openai(
                 model,
                 ctx,
                 api_key=api_key,
+                request_headers=request_headers,
                 signal=signal,
                 client=client,
             )
         )
-    raise ValueError(f"Unsupported provider: {model.provider}")
+    if model.api == "anthropic-messages":
+        return AssistantMessageStream(
+            _events=stream_anthropic(
+                model,
+                ctx,
+                api_key=api_key,
+                request_headers=request_headers,
+                signal=signal,
+                client=client,
+            )
+        )
+    raise ValueError(
+        f"Unsupported API {model.api!r} for provider {model.provider!r}"
+    )

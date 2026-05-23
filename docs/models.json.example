@@ -1,0 +1,28 @@
+{
+  "providers": {
+    "dashscope": {
+      "baseUrl": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+      "api": "openai-completions",
+      "apiKey": "DASHSCOPE_API_KEY",
+      "compat": {
+        "thinkingFormat": "qwen"
+      },
+      "models": [
+        { "id": "qwen-plus", "name": "Qwen Plus" },
+        { "id": "qwen-max", "name": "Qwen Max" }
+      ]
+    },
+    "ollama": {
+      "baseUrl": "http://localhost:11434/v1",
+      "api": "openai-completions",
+      "apiKey": "ollama",
+      "compat": {
+        "supportsDeveloperRole": false,
+        "supportsReasoningEffort": false
+      },
+      "models": [
+        { "id": "qwen2.5-coder:7b" }
+      ]
+    }
+  }
+}

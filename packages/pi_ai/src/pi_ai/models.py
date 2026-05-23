@@ -1,22 +1,10 @@
-"""Model registry for pi-ai."""
+"""Model lookup via registry (built-in + models.json)."""
 
 from __future__ import annotations
 
+from pi_ai.model_registry import get_registry
 from pi_ai.providers import faux as faux_provider
-from pi_ai.types import Model, ModelCost
-
-_OPENAI_MODELS: dict[str, Model] = {
-    "gpt-4o-mini": Model(
-        id="gpt-4o-mini",
-        name="GPT-4o Mini",
-        api="openai-completions",
-        provider="openai",
-        base_url="https://api.openai.com/v1",
-        context_window=128_000,
-        max_tokens=16_384,
-        cost=ModelCost(input=0.15, output=0.6),
-    ),
-}
+from pi_ai.types import Model
 
 
 def get_model(provider: str, model_id: str) -> Model:
@@ -25,9 +13,18 @@ def get_model(provider: str, model_id: str) -> Model:
         if model is not None:
             return model
         raise ValueError(f"Unknown faux model: {model_id}")
-    if provider == "openai":
-        model = _OPENAI_MODELS.get(model_id)
-        if model is not None:
-            return model
-        raise ValueError(f"Unknown openai model: {model_id}")
-    raise ValueError(f"Unknown provider: {provider}")
+
+    registry = get_registry()
+    model = registry.find(provider, model_id)
+    if model is not None:
+        return model
+
+    hint = ""
+    if registry.load_error:
+        hint = f" (models.json error: see registry.load_error)"
+    elif provider not in {"openai", "anthropic"}:
+        hint = (
+            f' Add provider "{provider}" in {registry.models_json_path} '
+            "(see pi docs/models.md)."
+        )
+    raise ValueError(f"Unknown model: {provider}/{model_id}{hint}")

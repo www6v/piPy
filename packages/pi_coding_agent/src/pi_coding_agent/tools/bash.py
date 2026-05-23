@@ -42,6 +42,44 @@ class BashOperations(Protocol):
     ) -> int | None: ...
 
 
+async def _wait_for_process(
+    process: asyncio.subprocess.Process,
+    *,
+    signal,
+    timeout: float | None,
+) -> int | None:
+    if signal is not None and getattr(signal, "is_set", lambda: False)():
+        process.kill()
+        await process.wait()
+        raise RuntimeError("aborted")
+
+    wait_task = asyncio.create_task(process.wait())
+
+    async def watch_abort() -> None:
+        if signal is None or not hasattr(signal, "is_set"):
+            return
+        while not wait_task.done():
+            if signal.is_set():
+                process.kill()
+                return
+            await asyncio.sleep(0.05)
+
+    abort_task = asyncio.create_task(watch_abort())
+    try:
+        if timeout is not None and timeout > 0:
+            return await asyncio.wait_for(wait_task, timeout=timeout)
+        return await wait_task
+    except asyncio.TimeoutError as exc:
+        process.kill()
+        await process.wait()
+        raise RuntimeError(f"timeout:{timeout}") from exc
+    finally:
+        abort_task.cancel()
+        if signal is not None and getattr(signal, "is_set", lambda: False)():
+            await process.wait()
+            raise RuntimeError("aborted")
+
+
 @dataclass
 class LocalBashOperations:
     async def exec(
@@ -63,7 +101,6 @@ class LocalBashOperations:
             stderr=asyncio.subprocess.STDOUT,
             env=os.environ.copy(),
         )
-        chunks: list[bytes] = []
 
         async def read_output() -> None:
             assert process.stdout is not None
@@ -71,28 +108,18 @@ class LocalBashOperations:
                 data = await process.stdout.read(4096)
                 if not data:
                     break
-                chunks.append(data)
                 if on_data is not None:
                     on_data(data)
 
         read_task = asyncio.create_task(read_output())
-        if signal is not None and getattr(signal, "is_set", lambda: False)():
-            process.kill()
-            await process.wait()
-            raise RuntimeError("aborted")
         try:
-            if timeout is not None and timeout > 0:
-                exit_code = await asyncio.wait_for(process.wait(), timeout=timeout)
-            else:
-                exit_code = await process.wait()
-        except asyncio.TimeoutError as exc:
-            process.kill()
-            await process.wait()
-            raise RuntimeError(f"timeout:{timeout}") from exc
+            return await _wait_for_process(
+                process,
+                signal=signal,
+                timeout=timeout,
+            )
         finally:
             await read_task
-
-        return exit_code
 
 
 async def _default_exec(
@@ -102,7 +129,7 @@ async def _default_exec(
     on_data,
     signal,
     timeout: float | None,
-) -> tuple[int | None, str]:
+) -> int | None:
     ops = LocalBashOperations()
     return await ops.exec(
         command,
@@ -145,25 +172,16 @@ class BashTool:
         def on_data(data: bytes) -> None:
             chunks.append(data)
 
+        exec_fn = self.operations.exec if self.operations is not None else _default_exec
         try:
-            if self.operations is not None:
-                exit_code = await self.operations.exec(
-                    command,
-                    cwd,
-                    on_data=on_data,
-                    signal=signal,
-                    timeout=timeout_val,
-                )
-                output = b"".join(chunks).decode("utf-8", errors="replace")
-            else:
-                exit_code = await _default_exec(
-                    command,
-                    cwd,
-                    on_data=on_data,
-                    signal=signal,
-                    timeout=timeout_val,
-                )
-                output = b"".join(chunks).decode("utf-8", errors="replace")
+            exit_code = await exec_fn(
+                command,
+                cwd,
+                on_data=on_data,
+                signal=signal,
+                timeout=timeout_val,
+            )
+            output = b"".join(chunks).decode("utf-8", errors="replace")
         except RuntimeError as exc:
             output = b"".join(chunks).decode("utf-8", errors="replace")
             snapshot = truncate_tail(output)

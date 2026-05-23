@@ -28,6 +28,12 @@ class Model:
     cost: ModelCost = field(default_factory=ModelCost)
     context_window: int = 128_000
     max_tokens: int = 16_384
+    # From models.json compat.thinkingFormat (openai-completions).
+    thinking_format: str | None = None
+    # Per-model / merged request headers from models.json.
+    headers: dict[str, str] | None = None
+    # models.json provider.authHeader -> Authorization: Bearer <key>.
+    auth_header: bool = False
 
 
 @dataclass

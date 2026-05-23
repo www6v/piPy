@@ -24,8 +24,8 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--model",
-        default="openai/gpt-4o-mini",
-        help="Model as provider/modelId (default: openai/gpt-4o-mini)",
+        default="anthropic/claude-sonnet-4-5",
+        help="Model as provider/modelId (default: anthropic/claude-sonnet-4-5)",
     )
     parser.add_argument("--api-key", help="API key override")
     parser.add_argument("--system", help="System prompt override")

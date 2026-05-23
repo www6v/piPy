@@ -5,11 +5,12 @@ from __future__ import annotations
 import json
 import time
 from collections.abc import AsyncIterator
+from dataclasses import dataclass, field
 from typing import Any
 
 import httpx
 
-from pi_ai.env_keys import get_openai_api_key
+from pi_ai.env_keys import find_env_keys, get_env_api_key
 from pi_ai.types import (
     AssistantMessage,
     Context,
@@ -24,6 +25,13 @@ from pi_ai.types import (
     Usage,
     UsageCost,
 )
+
+
+@dataclass
+class _OpenAIStreamState:
+    text_buffer: str = ""
+    tool_calls: dict[int, ToolCall] = field(default_factory=dict)
+    tool_args_raw: dict[int, str] = field(default_factory=dict)
 
 
 def _usage_from_response(data: dict[str, Any]) -> Usage:
@@ -92,30 +100,34 @@ def parse_sse_chunk(line: str) -> dict[str, Any] | None:
     return json.loads(payload)
 
 
-def events_from_openai_chunk(
-    chunk: dict[str, Any],
-    *,
-    model: Model,
-    partial: AssistantMessage,
-) -> tuple[AssistantMessage, list[StreamEvent]]:
+def _build_partial_content(state: _OpenAIStreamState) -> list[TextContent | ToolCall]:
+    content: list[TextContent | ToolCall] = []
+    if state.text_buffer:
+        content.append(TextContent(text=state.text_buffer))
+    for index in sorted(state.tool_calls):
+        content.append(state.tool_calls[index])
+    return content
+
+
+def _apply_openai_delta(
+    state: _OpenAIStreamState,
+    delta: dict[str, Any],
+) -> list[StreamEvent]:
     events: list[StreamEvent] = []
-    choices = chunk.get("choices") or []
-    if not choices:
-        return partial, events
-    delta = choices[0].get("delta") or {}
-    if "content" in delta and delta["content"]:
+    if delta.get("content"):
         text = delta["content"]
-        partial.content.append(TextContent(text=text))
-        events.append(TextDeltaEvent(delta=text, partial=_clone_assistant(partial)))
-    for tool_delta in delta.get("tool_calls") or []:
-        index = tool_delta.get("index", 0)
-        while len(partial.content) <= index:
-            partial.content.append(
-                ToolCall(id="", name="", arguments={})
+        state.text_buffer += text
+        events.append(
+            TextDeltaEvent(
+                delta=text,
+                partial=_message_from_state(state),
             )
-        block = partial.content[index]
-        if not isinstance(block, ToolCall):
-            continue
+        )
+    for tool_delta in delta.get("tool_calls") or []:
+        index = int(tool_delta.get("index", 0))
+        if index not in state.tool_calls:
+            state.tool_calls[index] = ToolCall(id="", name="", arguments={})
+        block = state.tool_calls[index]
         if tool_delta.get("id"):
             block.id = tool_delta["id"]
         function = tool_delta.get("function") or {}
@@ -124,14 +136,63 @@ def events_from_openai_chunk(
         if function.get("arguments"):
             raw = function["arguments"]
             if isinstance(raw, str):
+                merged = state.tool_args_raw.get(index, "") + raw
+                state.tool_args_raw[index] = merged
                 try:
-                    parsed = json.loads(raw)
+                    parsed = json.loads(merged)
                     if isinstance(parsed, dict):
                         block.arguments = parsed
                 except json.JSONDecodeError:
                     pass
-        events.append(TextDeltaEvent(delta="", partial=_clone_assistant(partial)))
-    return partial, events
+        events.append(
+            TextDeltaEvent(
+                delta="",
+                partial=_message_from_state(state),
+            )
+        )
+    return events
+
+
+def _message_from_state(
+    state: _OpenAIStreamState,
+    *,
+    model: Model | None = None,
+    partial: AssistantMessage | None = None,
+) -> AssistantMessage:
+    base = partial or AssistantMessage(
+        content=[],
+        api="",
+        provider="",
+        model="",
+        usage=Usage(),
+        stop_reason="stop",
+    )
+    return AssistantMessage(
+        content=_build_partial_content(state),
+        api=model.api if model else base.api,
+        provider=model.provider if model else base.provider,
+        model=model.id if model else base.model,
+        usage=base.usage,
+        stop_reason=base.stop_reason,
+        timestamp=base.timestamp,
+        error_message=base.error_message,
+    )
+
+
+def events_from_openai_chunk(
+    chunk: dict[str, Any],
+    *,
+    model: Model,
+    partial: AssistantMessage,
+    state: _OpenAIStreamState,
+) -> tuple[AssistantMessage, list[StreamEvent]]:
+    choices = chunk.get("choices") or []
+    if not choices:
+        return partial, []
+    delta = choices[0].get("delta") or {}
+    stream_events = _apply_openai_delta(state, delta)
+    partial = _message_from_state(state, model=model, partial=partial)
+    return partial, stream_events
 
 
 def _clone_assistant(message: AssistantMessage) -> AssistantMessage:
@@ -164,11 +225,16 @@ async def stream_openai(
     context: Context,
     *,
     api_key: str | None = None,
+    request_headers: dict[str, str] | None = None,
     signal: Any = None,
     client: httpx.AsyncClient | None = None,
 ) -> AsyncIterator[StreamEvent]:
-    key = api_key or get_openai_api_key()
-    if not key:
+    key = api_key or get_env_api_key(model.provider)
+    env_hint = (find_env_keys(model.provider) or ["OPENAI_API_KEY"])[0]
+    has_bearer = request_headers and any(
+        k.lower() == "authorization" for k in request_headers
+    )
+    if not key and not has_bearer:
         partial = AssistantMessage(
             content=[],
             api=model.api,
@@ -176,9 +242,9 @@ async def stream_openai(
             model=model.id,
             usage=Usage(),
             stop_reason="error",
-            error_message="OPENAI_API_KEY not set",
+            error_message=f"{env_hint} not set",
         )
-        yield StreamErrorEvent(error="OPENAI_API_KEY not set", partial=partial)
+        yield StreamErrorEvent(error=f"{env_hint} not set", partial=partial)
         yield StreamDoneEvent(message=partial)
         return
 
@@ -199,7 +265,10 @@ async def stream_openai(
             }
             for tool in context.tools
         ]
+    if model.thinking_format == "qwen" and model.reasoning:
+        body["enable_thinking"] = True
 
+    stream_state = _OpenAIStreamState()
     partial = AssistantMessage(
         content=[],
         api=model.api,
@@ -211,16 +280,19 @@ async def stream_openai(
     )
     yield StreamStartEvent(partial=_clone_assistant(partial))
 
+    headers: dict[str, str] = {"Content-Type": "application/json"}
+    if request_headers:
+        headers.update(request_headers)
+    if key and "authorization" not in {k.lower() for k in headers}:
+        headers["Authorization"] = f"Bearer {key}"
+
     owns_client = client is None
     http = client or httpx.AsyncClient(timeout=120.0)
     try:
         async with http.stream(
             "POST",
             f"{model.base_url.rstrip('/')}/chat/completions",
-            headers={
-                "Authorization": f"Bearer {key}",
-                "Content-Type": "application/json",
-            },
+            headers=headers,
             json=body,
         ) as response:
             response.raise_for_status()
@@ -236,7 +308,10 @@ async def stream_openai(
                 if parsed.get("done"):
                     break
                 partial, chunk_events = events_from_openai_chunk(
-                    parsed, model=model, partial=partial
+                    parsed,
+                    model=model,
+                    partial=partial,
+                    state=stream_state,
                 )
                 for event in chunk_events:
                     yield event
@@ -248,6 +323,7 @@ async def stream_openai(
                         partial.stop_reason = "stop"
                 if "usage" in parsed:
                     partial.usage = _usage_from_response(parsed)
+        partial.content = _build_partial_content(stream_state)
         if any(block.type == "toolCall" for block in partial.content):
             partial.stop_reason = "toolUse"
         yield StreamDoneEvent(message=partial)
