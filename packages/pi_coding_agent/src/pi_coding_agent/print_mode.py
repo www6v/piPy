@@ -1,0 +1,94 @@
+"""Print (single-shot) mode for pi-coding-agent."""
+
+from __future__ import annotations
+
+import sys
+from dataclasses import dataclass
+
+from pi_agent.agent import Agent
+from pi_ai.models import get_model
+from pi_ai.types import TextContent
+
+from pi_coding_agent.tools.registry import create_tools_for_names
+
+
+@dataclass
+class PrintModeOptions:
+    prompt: str
+    model: str
+    system_prompt: str
+    tools: list[str]
+    api_key: str | None
+    provider: str | None
+
+
+DEFAULT_SYSTEM = (
+    "You are a helpful coding assistant with read and bash tools. "
+    "Use tools when needed to inspect the workspace."
+)
+
+
+def _ensure_faux_model(model_id: str) -> None:
+    from pi_ai.providers import faux as faux_mod
+    from pi_ai.providers.faux import (
+        faux_assistant_message,
+        faux_text,
+        register_faux_provider,
+    )
+
+    if faux_mod.get_faux_model(model_id) is None:
+        register_faux_provider(
+            models=[{"id": model_id, "name": model_id}],
+            handler=lambda _ctx: faux_assistant_message([faux_text("ok")]),
+        )
+
+
+async def run_print_mode(options: PrintModeOptions) -> int:
+    provider, _, model_id = _parse_model(options.model, options.provider)
+    if provider == "faux":
+        _ensure_faux_model(model_id)
+    model = get_model(provider, model_id)
+    cwd = "."
+    agent = Agent(
+        system_prompt=options.system_prompt or DEFAULT_SYSTEM,
+        model=model,
+        tools=create_tools_for_names(cwd, options.tools),
+        api_key=options.api_key,
+    )
+
+    final_text = ""
+
+    def on_event(event) -> None:
+        nonlocal final_text
+        if event.type == "message_update":
+            for block in event.message.content:
+                if block.type == "text":
+                    delta = getattr(event.assistant_message_event, "delta", "")
+                    if delta:
+                        sys.stdout.write(delta)
+                        sys.stdout.flush()
+        if event.type == "message_end" and event.message.role == "assistant":
+            parts = [
+                block.text
+                for block in event.message.content
+                if block.type == "text"
+            ]
+            final_text = "".join(parts)
+
+    agent.subscribe(on_event)
+    await agent.prompt(options.prompt)
+    await agent.wait_for_idle()
+    if final_text and not final_text.endswith("\n"):
+        sys.stdout.write("\n")
+    return 0
+
+
+def _parse_model(model: str, provider_override: str | None) -> tuple[str, str, str]:
+    if "/" in model:
+        provider, model_id = model.split("/", 1)
+    else:
+        provider = provider_override or "openai"
+        model_id = model
+    if provider_override is not None:
+        provider = provider_override
+    return provider, provider, model_id
