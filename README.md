@@ -65,6 +65,14 @@ export DASHSCOPE_API_KEY=sk-...
 ./pipy-test.sh --provider faux --model faux/test -p "hello"
 ```
 
+### Verbose event log (stderr)
+
+Matches pi MVP acceptance: `agent_start` → `turn_start` → `message_*` → `tool_execution_*`:
+
+```bash
+./pipy-test.sh -v -p "List files" --provider faux --model faux/test
+```
+
 ## MVP limits
 
 - Print mode only (`-p`); no interactive TUI

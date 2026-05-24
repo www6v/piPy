@@ -11,3 +11,10 @@ def test_parser_defaults() -> None:
     assert args.print_mode is True
     assert args.prompt == "hello"
     assert args.tools == "read,bash"
+    assert args.verbose is False
+
+
+def test_parser_verbose_flag() -> None:
+    parser = build_parser()
+    args = parser.parse_args(["-p", "hello", "-v"])
+    assert args.verbose is True

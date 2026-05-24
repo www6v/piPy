@@ -39,6 +39,12 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Force provider id (e.g. faux for tests)",
     )
+    parser.add_argument(
+        "-v",
+        "--verbose",
+        action="store_true",
+        help="Log agent events to stderr (agent_start, tool_execution_*, etc.)",
+    )
     parser.add_argument("prompt", nargs="?", help="User prompt for print mode")
     parser.add_argument(
         "-V",
@@ -67,6 +73,7 @@ def main(argv: list[str] | None = None) -> int:
         tools=tools,
         api_key=args.api_key,
         provider=args.provider,
+        verbose=args.verbose,
     )
     try:
         return asyncio.run(run_print_mode(options))

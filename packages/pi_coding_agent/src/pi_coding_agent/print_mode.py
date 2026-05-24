@@ -11,6 +11,7 @@ from pi_ai.model_registry import get_registry
 from pi_ai.models import get_model
 from pi_ai.types import TextContent
 
+from pi_coding_agent.event_log import log_agent_event
 from pi_coding_agent.tools.registry import create_tools_for_names
 
 
@@ -22,6 +23,7 @@ class PrintModeOptions:
     tools: list[str]
     api_key: str | None
     provider: str | None
+    verbose: bool = False
 
 
 DEFAULT_SYSTEM = (
@@ -70,6 +72,8 @@ async def run_print_mode(options: PrintModeOptions) -> int:
 
     def on_event(event) -> None:
         nonlocal final_text
+        if options.verbose:
+            log_agent_event(event)
         if event.type == "message_update":
             for block in event.message.content:
                 if block.type == "text":
