@@ -26,6 +26,7 @@ class InteractiveOptions:
     verbose: bool
     continue_session: bool
     session_path: str | None
+    fork_session: str | None = None
     no_context_files: bool = False
 
 
@@ -113,6 +114,7 @@ async def run_interactive_mode(options: InteractiveOptions) -> int:
         thinking_level=options.thinking_level,
         continue_session=options.continue_session,
         session_path=options.session_path,
+        fork_session=options.fork_session,
         no_context_files=options.no_context_files,
     )
     session = await create_agent_session_bundle(run_config)

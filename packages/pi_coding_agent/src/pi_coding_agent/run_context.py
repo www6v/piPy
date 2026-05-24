@@ -22,6 +22,7 @@ class AgentRunConfig:
     thinking_level: str | None = None
     continue_session: bool = False
     session_path: str | None = None
+    fork_session: str | None = None
     no_context_files: bool = False
 
 
@@ -50,6 +51,7 @@ async def create_agent_session_bundle(
             thinking_level=config.thinking_level,
             continue_session=config.continue_session,
             session_path=config.session_path,
+            fork_session=config.fork_session,
             model_registry=registry,
         )
     )

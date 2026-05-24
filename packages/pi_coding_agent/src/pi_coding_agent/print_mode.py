@@ -27,6 +27,7 @@ class PrintModeOptions:
     mode: str = "text"
     continue_session: bool = False
     session_path: str | None = None
+    fork_session: str | None = None
     no_context_files: bool = False
 
 
@@ -40,6 +41,7 @@ def _to_run_config(options: PrintModeOptions) -> AgentRunConfig:
         thinking_level=options.thinking_level,
         continue_session=options.continue_session,
         session_path=options.session_path,
+        fork_session=options.fork_session,
         no_context_files=options.no_context_files,
     )
 

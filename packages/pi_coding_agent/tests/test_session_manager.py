@@ -75,3 +75,21 @@ def test_compaction_load_messages_keeps_suffix(tmp_path, monkeypatch):
     assert "Compact note." in summary_text
     assert _user_text(msgs[1]) == "m4"
     assert _user_text(msgs[2]) == "m5"
+
+
+def test_fork_from_copies_source_messages(tmp_path, monkeypatch):
+    sessions_root = tmp_path / "sessions"
+    monkeypatch.setattr(
+        "pi_coding_agent.session.manager.get_sessions_dir",
+        lambda: sessions_root,
+    )
+    source = SessionManager.create(tmp_path)
+    source.append_messages([prompt_text("alpha"), prompt_text("beta")])
+
+    forked = SessionManager.fork_from(source.path, tmp_path)
+    loaded = forked.load_messages()
+
+    assert source.path != forked.path
+    assert len(loaded) == 2
+    assert _user_text(loaded[0]) == "alpha"
+    assert _user_text(loaded[1]) == "beta"

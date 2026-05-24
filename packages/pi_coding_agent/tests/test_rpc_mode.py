@@ -93,3 +93,54 @@ def test_rpc_compact_subprocess_returns_summary_and_metadata(
     assert isinstance(data["firstKeptEntryId"], str)
     assert data["firstKeptEntryId"]
     assert isinstance(data["tokensBefore"], int)
+
+
+def test_rpc_bash_get_stats_and_export_html(tmp_path: Path) -> None:
+    cli_cmd = [
+        sys.executable,
+        "-m",
+        "pi_coding_agent.cli",
+        "--mode",
+        "rpc",
+        "--no-context-files",
+        "--provider",
+        "faux",
+        "--model",
+        "faux/rpc_bash_stats",
+        "--tools",
+        "read,bash",
+    ]
+    client = RpcClient(command=cli_cmd, cwd=tmp_path)
+    client.start()
+    try:
+        bash_resp, _ = client.request(
+            {"id": "b1", "type": "bash", "command": "printf hello"},
+        )
+        stats_resp, _ = client.request({"id": "s1", "type": "get_session_stats"})
+        export_path = tmp_path / "rpc-export.html"
+        export_resp, _ = client.request(
+            {
+                "id": "e1",
+                "type": "export_html",
+                "outputPath": str(export_path),
+            },
+        )
+    finally:
+        client.close()
+
+    assert bash_resp["success"] is True
+    assert bash_resp["command"] == "bash"
+    assert bash_resp["data"]["exitCode"] == 0
+    assert "hello" in bash_resp["data"]["output"]
+
+    assert stats_resp["success"] is True
+    assert stats_resp["command"] == "get_session_stats"
+    assert stats_resp["data"]["totalMessages"] >= 1
+    assert stats_resp["data"]["sessionId"]
+
+    assert export_resp["success"] is True
+    assert export_resp["command"] == "export_html"
+    html_path = Path(export_resp["data"]["path"])
+    assert html_path.is_file()
+    content = html_path.read_text(encoding="utf-8")
+    assert "piPy session export" in content

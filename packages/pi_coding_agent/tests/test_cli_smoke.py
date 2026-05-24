@@ -35,3 +35,15 @@ def test_parser_rpc_mode() -> None:
     args = parser.parse_args(["--mode", "rpc", "--no-session"])
     assert args.mode == "rpc"
     assert args.no_session is True
+
+
+def test_parser_resume_flag() -> None:
+    parser = build_parser()
+    args = parser.parse_args(["-r"])
+    assert args.resume_picker is True
+
+
+def test_parser_fork_flag() -> None:
+    parser = build_parser()
+    args = parser.parse_args(["--fork", "abc123"])
+    assert args.fork_session == "abc123"

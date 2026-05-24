@@ -80,6 +80,7 @@ class RpcModeOptions:
     no_session: bool
     continue_session: bool
     session_path: str | None
+    fork_session: str | None = None
     no_context_files: bool = False
 
 
@@ -98,6 +99,7 @@ async def run_rpc_mode(options: RpcModeOptions) -> int:
             in_memory=options.no_session,
             continue_session=options.continue_session,
             session_path=options.session_path,
+            fork_session=options.fork_session,
             no_context_files=options.no_context_files,
         )
     )
@@ -346,6 +348,54 @@ async def run_rpc_mode(options: RpcModeOptions) -> int:
         if cmd_type == "abort_retry":
             session.abort_retry()
             _write_stdout(_success(request_id, "abort_retry"))
+            return
+
+        if cmd_type == "bash":
+            command_text = command.get("command")
+            if not isinstance(command_text, str) or not command_text.strip():
+                _write_stdout(_error(request_id, "bash", "command is required"))
+                return
+            timeout_raw = command.get("timeout")
+            timeout: float | None = None
+            if timeout_raw is not None:
+                try:
+                    timeout = float(timeout_raw)
+                except (TypeError, ValueError):
+                    _write_stdout(_error(request_id, "bash", "timeout must be a number"))
+                    return
+            async with prompt_lock:
+                result = await session.run_bash_command(
+                    command_text,
+                    timeout=timeout,
+                )
+            _write_stdout(_success(request_id, "bash", result))
+            return
+
+        if cmd_type == "get_session_stats":
+            _write_stdout(
+                _success(
+                    request_id,
+                    "get_session_stats",
+                    session.get_session_stats(),
+                )
+            )
+            return
+
+        if cmd_type == "export_html":
+            output_path = command.get("outputPath")
+            if output_path is not None and not isinstance(output_path, str):
+                _write_stdout(
+                    _error(
+                        request_id,
+                        "export_html",
+                        "outputPath must be a string",
+                    )
+                )
+                return
+            path = session.export_html(output_path=output_path)
+            _write_stdout(
+                _success(request_id, "export_html", {"path": path})
+            )
             return
 
         if cmd_type == "steer":

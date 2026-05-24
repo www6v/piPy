@@ -32,6 +32,9 @@ For real models, omit `--provider faux` and configure `~/.pi/agent/models.json` 
 | `set_auto_compaction` | `{"type":"set_auto_compaction","enabled":true}` |
 | `set_auto_retry` | `{"type":"set_auto_retry","enabled":true}` toggles bounded auto-retries |
 | `abort_retry` | `{"type":"abort_retry"}` cancels an in-flight retry backoff wait |
+| `bash` | `{"type":"bash","command":"ls -la"}` executes shell command and stores output as user context |
+| `get_session_stats` | Token/message/cost/session metrics for current transcript |
+| `export_html` | `{"type":"export_html","outputPath":"/tmp/session.html"}` exports transcript |
 | `steer` | `{"type":"steer","message":"..."}` (while streaming use `prompt` + `streamingBehavior` instead) |
 | `follow_up` | `{"type":"follow_up","message":"..."}` |
 | `set_steering_mode` | `"mode"` is `all` or `one-at-a-time` |
@@ -71,4 +74,4 @@ Prefer the **SDK** (`create_agent_session`) when both ends are Python.
 
 ## Not yet implemented
 
-Extension UI, `get_commands`, bash RPC — see pi `rpc.md` for the full protocol ahead of piPy.
+Extension UI, `get_commands` — see pi `rpc.md` for the full protocol ahead of piPy.

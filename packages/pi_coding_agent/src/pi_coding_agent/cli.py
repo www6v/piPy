@@ -6,6 +6,7 @@ import argparse
 import asyncio
 import os
 import sys
+from pathlib import Path
 
 from pi_ai.model_registry import get_registry
 
@@ -13,6 +14,7 @@ from pi_coding_agent.config import APP_NAME, VERSION
 from pi_coding_agent.interactive_mode import InteractiveOptions, run_interactive_mode
 from pi_coding_agent.model_resolver import parse_model_pattern
 from pi_coding_agent.print_mode import PrintModeOptions, run_print_mode
+from pi_coding_agent.session.manager import SessionManager
 from pi_coding_agent.settings import load_settings
 
 
@@ -88,6 +90,19 @@ def build_parser() -> argparse.ArgumentParser:
         help="Path to a session .jsonl file",
     )
     parser.add_argument(
+        "-r",
+        "--resume",
+        dest="resume_picker",
+        action="store_true",
+        help="Pick a recent session for this cwd",
+    )
+    parser.add_argument(
+        "--fork",
+        dest="fork_session",
+        metavar="PATH_OR_ID",
+        help="Fork from a session path or id in current cwd",
+    )
+    parser.add_argument(
         "--list-models",
         action="store_true",
         help="List registered models and exit",
@@ -142,6 +157,30 @@ def _resolve_thinking(
     return settings.default_thinking_level
 
 
+def _pick_resume_session_path(cwd: Path) -> str | None:
+    sessions = SessionManager.list_paths_for_cwd(cwd)
+    if not sessions:
+        print("No sessions found for current directory.", file=sys.stderr)
+        return None
+    if not sys.stdin.isatty() or len(sessions) == 1:
+        return str(sessions[0])
+    print("Select a session:")
+    for idx, path in enumerate(sessions, start=1):
+        print(f"  {idx}. {path.name}")
+    raw = input("Enter number (blank=latest): ").strip()
+    if not raw:
+        return str(sessions[0])
+    try:
+        selected = int(raw)
+    except ValueError:
+        print("Invalid selection; using latest session.", file=sys.stderr)
+        return str(sessions[0])
+    if selected < 1 or selected > len(sessions):
+        print("Selection out of range; using latest session.", file=sys.stderr)
+        return str(sessions[0])
+    return str(sessions[selected - 1])
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
@@ -152,6 +191,12 @@ def main(argv: list[str] | None = None) -> int:
     thinking_level = _resolve_thinking(args.thinking_level, model_pattern)
     tools_raw = args.tools
     tools = [name.strip() for name in tools_raw.split(",") if name.strip()]
+    cwd = Path(os.getcwd()).resolve()
+    selected_session_path: str | None = args.session_path
+    if args.resume_picker:
+        selected_session_path = _pick_resume_session_path(cwd)
+        if selected_session_path is None:
+            return 1
 
     if args.mode == "rpc":
         from pi_coding_agent.modes.rpc_mode import RpcModeOptions, run_rpc_mode
@@ -164,8 +209,9 @@ def main(argv: list[str] | None = None) -> int:
             thinking_level=thinking_level,
             no_session=args.no_session,
             continue_session=args.continue_session,
-            session_path=args.session_path,
+            session_path=selected_session_path,
             no_context_files=args.no_context_files,
+            fork_session=args.fork_session,
         )
         try:
             return asyncio.run(run_rpc_mode(rpc_options))
@@ -189,7 +235,8 @@ def main(argv: list[str] | None = None) -> int:
             verbose=args.verbose,
             mode=args.mode,
             continue_session=args.continue_session,
-            session_path=args.session_path,
+            session_path=selected_session_path,
+            fork_session=args.fork_session,
             no_context_files=args.no_context_files,
         )
         try:
@@ -212,7 +259,8 @@ def main(argv: list[str] | None = None) -> int:
             verbose=args.verbose,
             mode=args.mode,
             continue_session=args.continue_session,
-            session_path=args.session_path,
+            session_path=selected_session_path,
+            fork_session=args.fork_session,
             no_context_files=args.no_context_files,
         )
         try:
@@ -232,7 +280,8 @@ def main(argv: list[str] | None = None) -> int:
         thinking_level=thinking_level,
         verbose=args.verbose,
         continue_session=args.continue_session,
-        session_path=args.session_path,
+        session_path=selected_session_path,
+        fork_session=args.fork_session,
         no_context_files=args.no_context_files,
     )
     try:

@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import asyncio
+import html
 import json
+import subprocess
 import uuid
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
@@ -559,6 +561,152 @@ class AgentSession:
         """Enable or disable automatic compaction on context overrun."""
 
         self._auto_compaction_enabled = enabled
+
+    async def run_bash_command(
+        self,
+        command: str,
+        *,
+        timeout: float | None = None,
+    ) -> dict[str, Any]:
+        """Execute a shell command and append its output as user context."""
+
+        cwd = str(self.cwd.resolve())
+        try:
+            completed = await asyncio.to_thread(
+                subprocess.run,
+                command,
+                cwd=cwd,
+                shell=True,
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                timeout=timeout,
+            )
+            output = completed.stdout or ""
+            exit_code = int(completed.returncode)
+            cancelled = False
+        except subprocess.TimeoutExpired as exc:
+            output = (exc.stdout or "") + (exc.stderr or "")
+            exit_code = 124
+            cancelled = False
+        formatted = (
+            f"Ran `{command}`\n```\n{output}\n```"
+            if output
+            else f"Ran `{command}`\n```\n(no output)\n```"
+        )
+        msg = UserMessage(content=formatted)
+        self._agent._messages.append(msg)
+        self._backend.append_messages([msg])
+        return {
+            "output": output,
+            "exitCode": exit_code,
+            "cancelled": cancelled,
+            "truncated": False,
+        }
+
+    def get_session_stats(self) -> dict[str, Any]:
+        """Compute basic session statistics for RPC clients."""
+
+        user_messages = 0
+        assistant_messages = 0
+        tool_results = 0
+        tool_calls = 0
+        token_input = 0
+        token_output = 0
+        token_cache_read = 0
+        token_cache_write = 0
+        cost_total = 0.0
+        for msg in self._agent._messages:
+            if isinstance(msg, UserMessage):
+                user_messages += 1
+                continue
+            if isinstance(msg, AssistantMessage):
+                assistant_messages += 1
+                for block in msg.content:
+                    if getattr(block, "type", "") == "toolCall":
+                        tool_calls += 1
+                usage = msg.usage
+                token_input += int(usage.input)
+                token_output += int(usage.output)
+                token_cache_read += int(usage.cache_read)
+                token_cache_write += int(usage.cache_write)
+                cost_total += float(usage.cost.total)
+                continue
+            tool_results += 1
+
+        total_tokens = token_input + token_output + token_cache_read + token_cache_write
+        context_usage: dict[str, Any] | None = None
+        if self._model.context_window > 0:
+            percent = (total_tokens / self._model.context_window) * 100
+            context_usage = {
+                "tokens": total_tokens,
+                "contextWindow": self._model.context_window,
+                "percent": round(percent, 2),
+            }
+        payload: dict[str, Any] = {
+            "sessionFile": self.session_file,
+            "sessionId": self.session_id,
+            "userMessages": user_messages,
+            "assistantMessages": assistant_messages,
+            "toolCalls": tool_calls,
+            "toolResults": tool_results,
+            "totalMessages": len(self._agent._messages),
+            "tokens": {
+                "input": token_input,
+                "output": token_output,
+                "cacheRead": token_cache_read,
+                "cacheWrite": token_cache_write,
+                "total": total_tokens,
+            },
+            "cost": round(cost_total, 6),
+        }
+        if context_usage is not None:
+            payload["contextUsage"] = context_usage
+        return payload
+
+    def export_html(self, output_path: str | None = None) -> str:
+        """Export current transcript to a standalone HTML file."""
+
+        if output_path:
+            target = Path(output_path).expanduser()
+        else:
+            base = Path(self.session_file) if self.session_file else (self.cwd / "session")
+            target = base.with_suffix(".html")
+        target.parent.mkdir(parents=True, exist_ok=True)
+
+        rows: list[str] = []
+        for msg in self._agent._messages:
+            role = msg.role
+            if isinstance(msg, UserMessage):
+                content = msg.content if isinstance(msg.content, str) else "".join(
+                    block.text for block in msg.content
+                )
+            elif isinstance(msg, AssistantMessage):
+                content = "".join(
+                    block.text
+                    for block in msg.content
+                    if getattr(block, "type", "") == "text"
+                )
+            else:
+                content = "\n".join(block.text for block in msg.content)
+            rows.append(
+                "<div class='msg'>"
+                f"<div class='role'>{html.escape(role)}</div>"
+                f"<pre>{html.escape(content)}</pre>"
+                "</div>"
+            )
+        body = "\n".join(rows)
+        doc = (
+            "<!doctype html><html><head><meta charset='utf-8'>"
+            "<title>piPy session export</title>"
+            "<style>body{font-family:ui-monospace,monospace;padding:16px}"
+            ".msg{border:1px solid #ddd;border-radius:8px;margin:10px 0;padding:10px}"
+            ".role{font-weight:700;margin-bottom:6px}pre{white-space:pre-wrap}</style>"
+            "</head><body>"
+            f"<h1>Session {html.escape(self.session_id)}</h1>{body}</body></html>"
+        )
+        target.write_text(doc, encoding="utf-8")
+        return str(target.resolve())
 
     def get_rpc_state(self) -> dict[str, Any]:
         pending = (

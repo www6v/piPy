@@ -45,6 +45,7 @@ class CreateAgentSessionOptions:
     in_memory: bool = False
     continue_session: bool = False
     session_path: str | None = None
+    fork_session: str | None = None
     model_registry: ModelRegistry | None = None
 
 
@@ -69,6 +70,17 @@ def _resolve_backend(
         )
     if options.session_path:
         manager = SessionManager.open(options.session_path)
+        return SessionBackend(
+            manager=manager,
+            session_id=_read_session_id(manager.path),
+            session_file=str(manager.path),
+        )
+    if options.fork_session:
+        source = SessionManager.resolve_session_reference(cwd, options.fork_session)
+        if source is None:
+            msg = f"Unable to resolve fork session: {options.fork_session}"
+            raise ValueError(msg)
+        manager = SessionManager.fork_from(source, cwd)
         return SessionBackend(
             manager=manager,
             session_id=_read_session_id(manager.path),

@@ -199,14 +199,63 @@ class SessionManager:
         session_dir = get_sessions_dir() / _cwd_key(cwd_path)
         if not session_dir.is_dir():
             return None
-        files = sorted(
+        files = cls.list_paths_for_cwd(cwd_path)
+        if not files:
+            return None
+        return cls(files[0])
+
+    @classmethod
+    def list_paths_for_cwd(cls, cwd: str | Path) -> list[Path]:
+        cwd_path = Path(cwd).resolve()
+        session_dir = get_sessions_dir() / _cwd_key(cwd_path)
+        if not session_dir.is_dir():
+            return []
+        return sorted(
             session_dir.glob("*.jsonl"),
             key=lambda item: item.stat().st_mtime,
             reverse=True,
         )
-        if not files:
+
+    @classmethod
+    def resolve_session_reference(
+        cls,
+        cwd: str | Path,
+        reference: str,
+    ) -> Path | None:
+        raw = reference.strip()
+        if not raw:
             return None
-        return cls(files[0])
+        candidate = Path(raw).expanduser()
+        if candidate.is_file():
+            return candidate.resolve()
+        if candidate.suffix != ".jsonl":
+            by_id = (get_sessions_dir() / _cwd_key(Path(cwd).resolve())) / (
+                f"{raw}.jsonl"
+            )
+            if by_id.is_file():
+                return by_id.resolve()
+        return None
+
+    @classmethod
+    def fork_from(
+        cls,
+        source_path: str | Path,
+        cwd: str | Path,
+    ) -> SessionManager:
+        source = Path(source_path).expanduser().resolve()
+        if not source.is_file():
+            msg = f"Session not found: {source}"
+            raise FileNotFoundError(msg)
+        target = cls.create(cwd)
+        source_lines = source.read_text(encoding="utf-8").splitlines()
+        payload = source_lines[1:]
+        if payload:
+            with target.path.open("a", encoding="utf-8") as handle:
+                for line in payload:
+                    if line.strip():
+                        handle.write(line + "\n")
+        target._sync_leaf_from_disk()
+        return target
 
     def load_entries(self) -> list[dict]:
         """Parse JSONL lines into dictionaries (skip invalid lines)."""

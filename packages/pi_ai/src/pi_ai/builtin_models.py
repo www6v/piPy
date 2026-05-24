@@ -6,8 +6,11 @@ from pi_ai.types import Model, ModelCost
 
 _ANTHROPIC_BASE = "https://api.anthropic.com"
 _OPENAI_BASE = "https://api.openai.com/v1"
+_GOOGLE_BASE = "https://generativelanguage.googleapis.com"
 
-BUILTIN_PROVIDERS: frozenset[str] = frozenset({"openai", "anthropic", "faux"})
+BUILTIN_PROVIDERS: frozenset[str] = frozenset(
+    {"openai", "anthropic", "google", "faux"}
+)
 
 
 def builtin_models() -> list[Model]:
@@ -42,5 +45,15 @@ def builtin_models() -> list[Model]:
             context_window=200_000,
             max_tokens=64_000,
             cost=ModelCost(input=0.8, output=4.0),
+        ),
+        Model(
+            id="gemini-2.0-flash",
+            name="Gemini 2.0 Flash",
+            api="google-generate-content",
+            provider="google",
+            base_url=_GOOGLE_BASE,
+            context_window=1_000_000,
+            max_tokens=8_192,
+            cost=ModelCost(input=0.0, output=0.0),
         ),
     ]
