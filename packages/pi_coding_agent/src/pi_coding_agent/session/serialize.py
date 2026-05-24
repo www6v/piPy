@@ -5,7 +5,27 @@ from __future__ import annotations
 from typing import Any
 
 from pi_agent.types import AgentMessage
-from pi_ai.types import AssistantMessage, TextContent, ToolCall, ToolResultMessage, UserMessage
+from pi_ai.types import (
+    AssistantMessage,
+    Model,
+    TextContent,
+    ToolCall,
+    ToolResultMessage,
+    UserMessage,
+)
+
+
+def model_to_dict(model: Model) -> dict[str, Any]:
+    return {
+        "id": model.id,
+        "name": model.name,
+        "api": model.api,
+        "provider": model.provider,
+        "baseUrl": model.base_url,
+        "reasoning": model.reasoning,
+        "contextWindow": model.context_window,
+        "maxTokens": model.max_tokens,
+    }
 
 
 def message_to_dict(message: AgentMessage) -> dict[str, Any]:

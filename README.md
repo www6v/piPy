@@ -94,9 +94,65 @@ Matches pi MVP acceptance: `agent_start` → `turn_start` → `message_*` → `t
 ./pipy-test.sh --mode json -p "hi" --provider faux --model faux/test
 ```
 
+## P3a (implemented)
+
+Compaction, `.pi`/project context injection, steer/follow-up queues, and
+bounded auto-retries mirror core pi agent-session behavior.
+
+| Area | Notes |
+|------|--------|
+| Compaction | Auto when tokens exceed ``contextWindow - reserveTokens``; manual CLI/RPC/SDK |
+| Context files | `AGENTS.md`, `CLAUDE.md`, `.pi/SYSTEM.md`; ``--no-context-files`` skips |
+| Queues | `steer` / `follow_up` (+ streaming `prompt` with `streamingBehavior`) |
+| Retry | Overload/rate-limit/5xx-ish errors; backoff via ``settings.retry`` |
+
+```json
+{
+  "retry": {"enabled": true, "maxRetries": 3, "baseDelayMs": 2000},
+  "compaction": {
+    "enabled": true,
+    "reserveTokens": 16384,
+    "keepRecentTokens": 20000
+  }
+}
+```
+
+Demonstrate faux retry wiring (JSON lines include ``auto_retry_*``):
+
+```bash
+./pipy-test.sh --mode json -p "hi" \
+  --provider faux --model faux/retry-test
+```
+
+Plan: [`docs/superpowers/plans/2026-05-24-pipy-p3a.md`](docs/superpowers/plans/2026-05-24-pipy-p3a.md).
+
 ## Roadmap
 
-Further work: [docs/superpowers/plans/2026-05-23-pipy-p1.md](docs/superpowers/plans/2026-05-23-pipy-p1.md) §8（glob/find/ls、REPL、compaction、RPC）。
+## Programmatic usage (P2)
+
+### SDK
+
+```python
+from pi_coding_agent import CreateAgentSessionOptions, create_agent_session
+
+result = await create_agent_session(
+    CreateAgentSessionOptions(model="anthropic/claude-sonnet-4-5", tools=["read", "bash"])
+)
+await result.session.prompt("Summarize this repo")
+```
+
+See [docs/sdk.md](docs/sdk.md) and [examples/sdk/minimal.py](examples/sdk/minimal.py).
+
+### RPC mode
+
+```bash
+pipy --mode rpc --no-session
+# JSONL commands on stdin, events + responses on stdout
+```
+
+See [docs/rpc.md](docs/rpc.md). Python helper: `pi_coding_agent.rpc_client.RpcClient`.
+
+Further work: extensions, fuller RPC parity — see pi docs.
 
 ## Interactive mode
 

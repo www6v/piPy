@@ -2,21 +2,23 @@
 
 from __future__ import annotations
 
+import asyncio
 import sys
 from dataclasses import dataclass
 
 from pi_ai.model_registry import get_registry
 
+from pi_coding_agent.agent_session import AgentSession
 from pi_coding_agent.event_log import log_agent_event
 from pi_coding_agent.model_resolver import parse_model_pattern
-from pi_coding_agent.print_mode import DEFAULT_SYSTEM
-from pi_coding_agent.run_context import AgentRunConfig, create_agent_session
+from pi_coding_agent.run_context import AgentRunConfig, create_agent_session_bundle
+from pi_coding_agent.sdk import CreateAgentSessionOptions, create_agent_session
 
 
 @dataclass
 class InteractiveOptions:
     model_pattern: str
-    system_prompt: str
+    system_prompt: str | None
     tools: list[str]
     api_key: str | None
     provider: str | None
@@ -24,6 +26,7 @@ class InteractiveOptions:
     verbose: bool
     continue_session: bool
     session_path: str | None
+    no_context_files: bool = False
 
 
 def _print_help() -> None:
@@ -33,6 +36,7 @@ def _print_help() -> None:
                 "Commands:",
                 "  /exit, /quit     Exit",
                 "  /help            Show this help",
+                "  /compact [instr] Compact session (optional hints)",
                 "  /model [pattern] Show or switch model",
                 "  /tools           List enabled tools",
                 "  /session         Show session file path",
@@ -43,8 +47,20 @@ def _print_help() -> None:
     )
 
 
+async def _pump_stdin_lines(queue: asyncio.Queue[str | None]) -> None:
+    """Deliver stdin lines concurrently with an in-flight agent turn."""
+
+    while True:
+        line = await asyncio.to_thread(sys.stdin.readline)
+        if not line:
+            await queue.put(None)
+            return
+        stripped = line.rstrip("\n").rstrip("\r")
+        await queue.put(stripped)
+
+
 async def _run_turn(
-    session_bundle,
+    session: AgentSession,
     user_text: str,
     *,
     verbose: bool,
@@ -65,10 +81,13 @@ async def _run_turn(
         if event.type == "message_end" and event.message.role == "assistant":
             final_assistant = event.message
 
-    session_bundle.agent.subscribe(handle_event)
-    new_messages = await session_bundle.agent.prompt(user_text)
-    await session_bundle.agent.wait_for_idle()
-    session_bundle.session.append_messages(new_messages)
+    unsub = session.subscribe(handle_event)
+    try:
+        await session.prompt(user_text)
+        await session.wait_for_idle()
+    finally:
+        unsub()
+
     sys.stdout.write("\n")
     if final_assistant is not None and final_assistant.stop_reason in (
         "error",
@@ -87,43 +106,93 @@ async def run_interactive_mode(options: InteractiveOptions) -> int:
 
     run_config = AgentRunConfig(
         model_pattern=options.model_pattern,
-        system_prompt=options.system_prompt or DEFAULT_SYSTEM,
+        system_prompt=options.system_prompt or None,
         tools=options.tools,
         api_key=options.api_key,
         provider=options.provider,
         thinking_level=options.thinking_level,
         continue_session=options.continue_session,
         session_path=options.session_path,
+        no_context_files=options.no_context_files,
     )
-    session_bundle = create_agent_session(run_config)
-    model_label = (
-        f"{session_bundle.model.provider}/{session_bundle.model.id}"
-    )
-    if session_bundle.thinking_level:
-        model_label += f" (thinking: {session_bundle.thinking_level})"
+    session = await create_agent_session_bundle(run_config)
+    model_label = f"{session.model.provider}/{session.model.id}"
+    if session.thinking_level:
+        model_label += f" (thinking: {session.thinking_level})"
 
     print(f"piPy interactive — model: {model_label}")
     print(f"tools: {', '.join(options.tools)}")
     print("Type /help for commands.\n")
 
+    line_queue: asyncio.Queue[str | None] = asyncio.Queue()
+    asyncio.create_task(_pump_stdin_lines(line_queue))
+    turn_task: asyncio.Task[int] | None = None
+
+    def print_prompt_marker() -> None:
+        sys.stdout.write("> ")
+        sys.stdout.flush()
+
     while True:
+        print_prompt_marker()
         try:
-            line = input("> ").strip()
-        except (EOFError, KeyboardInterrupt):
+            line_raw = await line_queue.get()
+        except asyncio.CancelledError:
+            raise
+        except KeyboardInterrupt:
             print()
             return 0
+
+        if line_raw is None:
+            print()
+            return 0
+
+        line = line_raw.strip()
+
         if not line:
             continue
+
         if line in ("/exit", "/quit"):
             return 0
+
+        if turn_task is not None and not turn_task.done():
+            if session.is_streaming and not line.startswith("/"):
+                session.steer(line)
+                preview = line if len(line) <= 160 else line[:157] + "..."
+                print(f"Queued (steer): {preview}")
+                continue
+            prev = await turn_task
+            turn_task = None
+            if prev != 0:
+                return prev
+
         if line == "/help":
             _print_help()
             continue
         if line == "/tools":
             print(", ".join(options.tools))
             continue
+        if line.startswith("/compact"):
+            if session.is_streaming:
+                msg = "Cannot compact while the agent is streaming."
+                print(msg, file=sys.stderr)
+                continue
+            remainder = line[len("/compact") :].strip()
+            custom_instructions = remainder or None
+            try:
+                compact_result = await session.compact(
+                    custom_instructions=custom_instructions,
+                )
+            except RuntimeError as exc:
+                print(f"Compaction failed: {exc}", file=sys.stderr)
+                continue
+            print(
+                f"Compacted: tokens_before={compact_result.tokens_before}, "
+                f"first_kept_entry_id={compact_result.first_kept_entry_id}"
+            )
+            sys.stdout.flush()
+            continue
         if line == "/session":
-            print(session_bundle.session.path)
+            print(session.session_file or "(in-memory)")
             continue
         if line.startswith("/model"):
             parts = line.split(maxsplit=1)
@@ -135,27 +204,30 @@ async def run_interactive_mode(options: InteractiveOptions) -> int:
             if parsed is None:
                 print(f"Unknown model pattern: {pattern}", file=sys.stderr)
                 continue
-            run_config.model_pattern = (
-                f"{parsed.provider}/{parsed.model_id}"
+            result = await create_agent_session(
+                CreateAgentSessionOptions(
+                    model=f"{parsed.provider}/{parsed.model_id}",
+                    tools=options.tools,
+                    system_prompt=session.agent.state.system_prompt,
+                    system_prompt_is_final=True,
+                    api_key=options.api_key,
+                    provider=options.provider,
+                    thinking_level=parsed.thinking_level,
+                    continue_session=False,
+                    session_path=session.session_file,
+                )
             )
-            run_config.thinking_level = parsed.thinking_level
-            if parsed.warning:
-                print(f"Warning: {parsed.warning}", file=sys.stderr)
-            session_bundle = create_agent_session(
-                run_config,
-                system_prompt=session_bundle.agent.state.system_prompt,
-            )
-            model_label = (
-                f"{session_bundle.model.provider}/"
-                f"{session_bundle.model.id}"
-            )
-            if session_bundle.thinking_level:
-                model_label += f" (thinking: {session_bundle.thinking_level})"
+            if result.warning:
+                print(f"Warning: {result.warning}", file=sys.stderr)
+            session = result.session
+            model_label = f"{session.model.provider}/{session.model.id}"
+            if session.thinking_level:
+                model_label += f" (thinking: {session.thinking_level})"
             print(f"Switched to {model_label}")
             continue
         if line.startswith("/"):
             print(f"Unknown command: {line.split()[0]}", file=sys.stderr)
             continue
-        code = await _run_turn(session_bundle, line, verbose=options.verbose)
-        if code != 0:
-            return code
+        turn_task = asyncio.create_task(
+            _run_turn(session, line, verbose=options.verbose),
+        )

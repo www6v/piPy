@@ -34,7 +34,14 @@ def build_parser() -> argparse.ArgumentParser:
         help="Model as provider/modelId or pattern (e.g. sonnet:high)",
     )
     parser.add_argument("--api-key", help="API key override")
-    parser.add_argument("--system", help="System prompt override")
+    parser.add_argument("--system", default=None, help="System prompt override")
+    parser.add_argument(
+        "-nc",
+        "--no-context-files",
+        dest="no_context_files",
+        action="store_true",
+        help="Skip loading AGENTS.md / CLAUDE.md into the system prompt",
+    )
     parser.add_argument(
         "--tools",
         default="read,bash",
@@ -59,9 +66,14 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--mode",
-        choices=["text", "json"],
+        choices=["text", "json", "rpc"],
         default="text",
-        help="Output mode: text (default) or json (JSONL events on stdout)",
+        help="Output mode: text, json, or rpc (JSONL protocol on stdin/stdout)",
+    )
+    parser.add_argument(
+        "--no-session",
+        action="store_true",
+        help="Disable session persistence (RPC / SDK)",
     )
     parser.add_argument(
         "-c",
@@ -141,13 +153,35 @@ def main(argv: list[str] | None = None) -> int:
     tools_raw = args.tools
     tools = [name.strip() for name in tools_raw.split(",") if name.strip()]
 
+    if args.mode == "rpc":
+        from pi_coding_agent.modes.rpc_mode import RpcModeOptions, run_rpc_mode
+
+        rpc_options = RpcModeOptions(
+            model=model_pattern,
+            tools=tools,
+            api_key=args.api_key,
+            provider=args.provider,
+            thinking_level=thinking_level,
+            no_session=args.no_session,
+            continue_session=args.continue_session,
+            session_path=args.session_path,
+            no_context_files=args.no_context_files,
+        )
+        try:
+            return asyncio.run(run_rpc_mode(rpc_options))
+        except KeyboardInterrupt:
+            return 130
+        except Exception as exc:
+            print(f"Error: {exc}", file=sys.stderr)
+            return 1
+
     if args.print_mode:
         if not args.prompt:
             parser.error("print mode requires a prompt argument")
         options = PrintModeOptions(
             prompt=args.prompt,
             model=model_pattern,
-            system_prompt=args.system or "",
+            system_prompt=args.system,
             tools=tools,
             api_key=args.api_key,
             provider=args.provider,
@@ -156,6 +190,7 @@ def main(argv: list[str] | None = None) -> int:
             mode=args.mode,
             continue_session=args.continue_session,
             session_path=args.session_path,
+            no_context_files=args.no_context_files,
         )
         try:
             return asyncio.run(run_print_mode(options))
@@ -169,7 +204,7 @@ def main(argv: list[str] | None = None) -> int:
         options = PrintModeOptions(
             prompt=args.prompt,
             model=model_pattern,
-            system_prompt=args.system or "",
+            system_prompt=args.system,
             tools=tools,
             api_key=args.api_key,
             provider=args.provider,
@@ -178,6 +213,7 @@ def main(argv: list[str] | None = None) -> int:
             mode=args.mode,
             continue_session=args.continue_session,
             session_path=args.session_path,
+            no_context_files=args.no_context_files,
         )
         try:
             return asyncio.run(run_print_mode(options))
@@ -189,7 +225,7 @@ def main(argv: list[str] | None = None) -> int:
 
     interactive = InteractiveOptions(
         model_pattern=model_pattern,
-        system_prompt=args.system or "",
+        system_prompt=args.system,
         tools=tools,
         api_key=args.api_key,
         provider=args.provider,
@@ -197,6 +233,7 @@ def main(argv: list[str] | None = None) -> int:
         verbose=args.verbose,
         continue_session=args.continue_session,
         session_path=args.session_path,
+        no_context_files=args.no_context_files,
     )
     try:
         return asyncio.run(run_interactive_mode(interactive))

@@ -8,12 +8,16 @@ import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
+from pi_agent.agent_loop import prompt_text
 from pi_agent.types import AgentMessage
 
 from pi_ai.config_paths import get_sessions_dir
 from pi_coding_agent.session.serialize import message_from_dict, message_to_dict
+from pi_coding_agent.session.types import CompactionResult
 
 CURRENT_SESSION_VERSION = 3
+
+_SUMMARY_PREFIX = "Previous conversation summary:\n"
 
 
 def _utc_now_iso() -> str:
@@ -25,9 +29,148 @@ def _cwd_key(cwd: Path) -> str:
     return digest
 
 
+def build_messages_from_entries(entries: list[dict]) -> list[AgentMessage]:
+    """Rebuild LLM-visible messages honoring the newest compaction on the leaf path."""
+    body = _session_body(entries)
+    if not body:
+        return []
+    leaf_id = _infer_leaf_id(entries)
+    if leaf_id is None:
+        return []
+    by_id = _entries_by_id(body)
+    if not by_id:
+        return []
+
+    path = _leaf_path(leaf_id, by_id)
+    if not path:
+        return []
+
+    compaction = _latest_compaction_on_path(path)
+    if compaction is None:
+        return _append_message_entries([], path)
+
+    summary_text = compaction.get("summary", "")
+    outgoing: list[AgentMessage] = [
+        prompt_text(f"{_SUMMARY_PREFIX}{summary_text}"),
+    ]
+
+    compaction_idx = next(
+        (
+            idx
+            for idx, row in enumerate(path)
+            if row.get("type") == "compaction"
+            and row.get("id") == compaction.get("id")
+        ),
+        None,
+    )
+    if compaction_idx is None:
+        return _append_message_entries(outgoing, path)
+
+    first_kept_raw = compaction.get("firstKeptEntryId") or compaction.get(
+        "first_kept_entry_id",
+    )
+    first_kept = first_kept_raw if isinstance(first_kept_raw, str) else None
+
+    found_first = False
+    for idx in range(compaction_idx):
+        row = path[idx]
+        if first_kept is not None and row.get("id") == first_kept:
+            found_first = True
+        if found_first:
+            outgoing = _append_message_row(outgoing, row)
+
+    for idx in range(compaction_idx + 1, len(path)):
+        outgoing = _append_message_row(outgoing, path[idx])
+
+    return outgoing
+
+
+def _session_body(entries: list[dict]) -> list[dict]:
+    """Return session entries excluding the optional leading session header."""
+    return [entry for entry in entries if entry.get("type") != "session"]
+
+
+def _entries_by_id(body: list[dict]) -> dict[str, dict]:
+    by_id: dict[str, dict] = {}
+    for row in body:
+        row_id = row.get("id")
+        if isinstance(row_id, str) and row_id:
+            by_id[row_id] = row
+    return by_id
+
+
+def _leaf_path(leaf_id: str | None, by_id: dict[str, dict]) -> list[dict]:
+    if leaf_id is None:
+        return []
+    path_rev: list[dict] = []
+    cur: str | None = leaf_id
+    visited: set[str] = set()
+    while cur is not None:
+        if cur in visited:
+            break
+        visited.add(cur)
+        row = by_id.get(cur)
+        if row is None:
+            break
+        path_rev.append(row)
+        parent_raw = row.get("parentId")
+        cur = (
+            None
+            if parent_raw is None
+            else (str(parent_raw) if isinstance(parent_raw, str) else None)
+        )
+
+    path_rev.reverse()
+    return path_rev
+
+
+def _latest_compaction_on_path(path: list[dict]) -> dict | None:
+    for idx in range(len(path) - 1, -1, -1):
+        if path[idx].get("type") == "compaction":
+            return path[idx]
+    return None
+
+
+def _append_message_entries(
+    base: list[AgentMessage],
+    path: list[dict],
+) -> list[AgentMessage]:
+    outgoing = list(base)
+    for row in path:
+        outgoing = _append_message_row(outgoing, row)
+    return outgoing
+
+
+def _append_message_row(
+    messages: list[AgentMessage],
+    row: dict,
+) -> list[AgentMessage]:
+    if row.get("type") != "message":
+        return messages
+    payload = row.get("message")
+    if isinstance(payload, dict):
+        messages.append(message_from_dict(payload))
+    return messages
+
+
+def _infer_leaf_id(entries: list[dict]) -> str | None:
+    """Pick the persisted leaf id using the chronologically last body entry."""
+    body = _session_body(entries)
+    for row in reversed(body):
+        row_id = row.get("id")
+        if isinstance(row_id, str) and row_id:
+            return row_id
+    return None
+
+
 class SessionManager:
+    """Append-only JSONL sessions with compaction-aware replay."""
+
     def __init__(self, path: Path) -> None:
-        self.path = path
+        self.path = Path(path)
+        self._leaf_id: str | None = None
+        if self.path.is_file():
+            self._sync_leaf_from_disk()
 
     @classmethod
     def create(cls, cwd: str | Path) -> SessionManager:
@@ -65,20 +208,24 @@ class SessionManager:
             return None
         return cls(files[0])
 
-    def load_messages(self) -> list[AgentMessage]:
+    def load_entries(self) -> list[dict]:
+        """Parse JSONL lines into dictionaries (skip invalid lines)."""
         if not self.path.is_file():
             return []
-        messages: list[AgentMessage] = []
+        parsed: list[dict] = []
         for line in self.path.read_text(encoding="utf-8").splitlines():
             if not line.strip():
                 continue
-            entry = json.loads(line)
-            if entry.get("type") != "message":
+            try:
+                obj = json.loads(line)
+                if isinstance(obj, dict):
+                    parsed.append(obj)
+            except json.JSONDecodeError:
                 continue
-            payload = entry.get("message")
-            if isinstance(payload, dict):
-                messages.append(message_from_dict(payload))
-        return messages
+        return parsed
+
+    def load_messages(self) -> list[AgentMessage]:
+        return build_messages_from_entries(self.load_entries())
 
     def append_messages(self, new_messages: list[AgentMessage]) -> None:
         if not new_messages:
@@ -88,11 +235,34 @@ class SessionManager:
             entry = {
                 "type": "message",
                 "id": str(uuid.uuid4()),
-                "parentId": None,
+                "parentId": self._leaf_id,
                 "timestamp": _utc_now_iso(),
                 "message": message_to_dict(message),
             }
+            self._leaf_id = entry["id"]
             lines.append(json.dumps(entry, ensure_ascii=False))
         with self.path.open("a", encoding="utf-8") as handle:
             for line in lines:
                 handle.write(line + "\n")
+
+    def append_compaction(self, result: CompactionResult) -> str:
+        """Write a compaction record and advance the leaf to it."""
+        entry_id = str(uuid.uuid4())
+        entry = {
+            "type": "compaction",
+            "id": entry_id,
+            "parentId": self._leaf_id,
+            "timestamp": _utc_now_iso(),
+            "summary": result.summary,
+            "firstKeptEntryId": result.first_kept_entry_id,
+            "tokensBefore": result.tokens_before,
+        }
+        if result.details:
+            entry["details"] = result.details
+        self._leaf_id = entry_id
+        with self.path.open("a", encoding="utf-8") as handle:
+            handle.write(json.dumps(entry, ensure_ascii=False) + "\n")
+        return entry_id
+
+    def _sync_leaf_from_disk(self) -> None:
+        self._leaf_id = _infer_leaf_id(self.load_entries())

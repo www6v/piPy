@@ -70,6 +70,16 @@ def agent_event_to_dict(event: AgentEvent) -> dict[str, Any]:
     return {"type": str(event.type)}
 
 
+def stream_event_to_jsonable(
+    event: AgentEvent | dict[str, Any],
+) -> dict[str, Any]:
+    """Normalize agent stream events plus session dict events for JSON."""
+
+    if isinstance(event, dict):
+        return dict(event)
+    return agent_event_to_dict(event)
+
+
 async def run_json_mode(options: PrintModeOptions) -> int:
     session_header: dict[str, Any] | None = None
 

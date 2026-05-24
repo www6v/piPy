@@ -4,25 +4,21 @@ from __future__ import annotations
 
 import sys
 from collections.abc import Callable
+from pathlib import Path
 from dataclasses import dataclass
 from typing import Any
 
 from pi_agent.types import AgentEvent
 
 from pi_coding_agent.event_log import log_agent_event
-from pi_coding_agent.run_context import AgentRunConfig, create_agent_session
-
-DEFAULT_SYSTEM = (
-    "You are a helpful coding assistant with read and bash tools. "
-    "Use tools when needed to inspect the workspace."
-)
+from pi_coding_agent.run_context import AgentRunConfig, create_agent_session_bundle
 
 
 @dataclass
 class PrintModeOptions:
     prompt: str
     model: str
-    system_prompt: str
+    system_prompt: str | None
     tools: list[str]
     api_key: str | None
     provider: str | None
@@ -31,18 +27,20 @@ class PrintModeOptions:
     mode: str = "text"
     continue_session: bool = False
     session_path: str | None = None
+    no_context_files: bool = False
 
 
 def _to_run_config(options: PrintModeOptions) -> AgentRunConfig:
     return AgentRunConfig(
         model_pattern=options.model,
-        system_prompt=options.system_prompt or DEFAULT_SYSTEM,
+        system_prompt=options.system_prompt or None,
         tools=options.tools,
         api_key=options.api_key,
         provider=options.provider,
         thinking_level=options.thinking_level,
         continue_session=options.continue_session,
         session_path=options.session_path,
+        no_context_files=options.no_context_files,
     )
 
 
@@ -60,12 +58,11 @@ async def _run_agent_session(
     if registry.load_error:
         print(f"Warning: {registry.load_error}", file=sys.stderr)
 
-    session_bundle = create_agent_session(_to_run_config(options))
-    session = session_bundle.session
-    agent = session_bundle.agent
+    session_bundle = await create_agent_session_bundle(_to_run_config(options))
 
-    if on_session_header is not None and session.path.is_file():
-        first_line = session.path.read_text(encoding="utf-8").splitlines()[:1]
+    if on_session_header is not None and session_bundle.session_file:
+        session_path = session_bundle.session_file
+        first_line = Path(session_path).read_text(encoding="utf-8").splitlines()[:1]
         if first_line:
             header = json.loads(first_line[0])
             if header.get("type") == "session":
@@ -74,8 +71,17 @@ async def _run_agent_session(
     final_text = ""
     final_assistant = None
 
-    def handle_event(event: AgentEvent) -> None:
+    def handle_event(event: AgentEvent | dict[str, Any]) -> None:
         nonlocal final_text, final_assistant
+        if isinstance(event, dict):
+            from pi_coding_agent.modes.json_mode import stream_event_to_jsonable
+
+            wrapped = json.dumps(
+                stream_event_to_jsonable(event),
+                ensure_ascii=False,
+            )
+            print(wrapped, flush=True)
+            return
         if options.verbose and options.mode == "text":
             log_agent_event(event)
         on_event(event)
@@ -95,10 +101,9 @@ async def _run_agent_session(
             ]
             final_text = "".join(parts)
 
-    agent.subscribe(handle_event)
-    new_messages = await agent.prompt(options.prompt)
-    await agent.wait_for_idle()
-    session.append_messages(new_messages)
+    session_bundle.subscribe_all(handle_event)
+    await session_bundle.prompt(options.prompt)
+    await session_bundle.wait_for_idle()
 
     if stream_text_to_stdout and final_text and not final_text.endswith("\n"):
         sys.stdout.write("\n")

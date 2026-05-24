@@ -28,3 +28,10 @@ def test_parser_json_mode() -> None:
     parser = build_parser()
     args = parser.parse_args(["-p", "hello", "--mode", "json"])
     assert args.mode == "json"
+
+
+def test_parser_rpc_mode() -> None:
+    parser = build_parser()
+    args = parser.parse_args(["--mode", "rpc", "--no-session"])
+    assert args.mode == "rpc"
+    assert args.no_session is True

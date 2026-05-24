@@ -129,3 +129,29 @@ def stream_simple(
     raise ValueError(
         f"Unsupported API {model.api!r} for provider {model.provider!r}"
     )
+
+
+async def complete_simple(
+    model: Model,
+    context: Context,
+    *,
+    tools: list[Any] | None = None,
+    api_key: str | None = None,
+    request_headers: dict[str, str] | None = None,
+    thinking_level: str | None = None,
+    signal: Any = None,
+    client: Any = None,
+) -> AssistantMessage:
+    """Consume a non-streaming completion via stream_simple."""
+
+    stream = stream_simple(
+        model,
+        context,
+        tools=tools,
+        api_key=api_key,
+        request_headers=request_headers,
+        thinking_level=thinking_level,
+        signal=signal,
+        client=client,
+    )
+    return await stream.result()

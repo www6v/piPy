@@ -160,6 +160,12 @@ class AgentLoopConfig:
     thinking_level: str | None = None
     tool_execution: ToolExecutionMode = "parallel"
     get_api_key: Callable[[str], str | None | Awaitable[str | None]] | None = None
+    get_steering_messages: (
+        Callable[[], Awaitable[list[AgentMessage]]] | None
+    ) = None
+    get_follow_up_messages: (
+        Callable[[], Awaitable[list[AgentMessage]]] | None
+    ) = None
 
 
 def user_message(text: str) -> UserMessage:

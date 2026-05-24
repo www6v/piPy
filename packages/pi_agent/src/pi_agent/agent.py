@@ -7,6 +7,7 @@ from collections.abc import Awaitable, Callable
 from typing import Any
 
 from pi_agent.agent_loop import run_agent_loop
+from pi_agent.message_queue import PendingMessageQueue, QueueMode
 from pi_agent.messages import convert_to_llm
 from pi_agent.types import (
     AgentContext,
@@ -15,8 +16,13 @@ from pi_agent.types import (
     AgentMessage,
     AgentState,
     AgentTool,
+    user_message,
 )
 from pi_ai.types import Context, Model, Tool
+
+
+class AgentBusyError(RuntimeError):
+    """Raised when starting a prompt while another run is in progress."""
 
 
 class Agent:
@@ -31,6 +37,8 @@ class Agent:
         initial_messages: list[AgentMessage] | None = None,
         convert_to_llm_fn: Callable[..., Any] | None = None,
         thinking_level: str | None = None,
+        steering_mode: QueueMode = "all",
+        follow_up_mode: QueueMode = "all",
     ) -> None:
         self._system_prompt = system_prompt
         self._model = model
@@ -40,6 +48,8 @@ class Agent:
         self._request_headers = request_headers
         self._thinking_level = thinking_level
         self._convert_to_llm = convert_to_llm_fn or convert_to_llm
+        self.steering_queue = PendingMessageQueue(mode=steering_mode)
+        self.follow_up_queue = PendingMessageQueue(mode=follow_up_mode)
         self._subscribers: list[
             Callable[[AgentEvent], None | Awaitable[None]]
         ] = []
@@ -55,7 +65,7 @@ class Agent:
             model=self._model,
             tools=list(self._tools),
             messages=list(self._messages),
-            is_streaming=self._run_task is not None and not self._idle.is_set(),
+            is_streaming=self._run_task is not None,
         )
 
     def subscribe(
@@ -75,19 +85,43 @@ class Agent:
             if asyncio.iscoroutine(result):
                 await result
 
+    def steer(self, text: str) -> None:
+        """Enqueue a user steering message drained during tool rounds."""
+        self.steering_queue.enqueue(user_message(text))
+
+    def follow_up(self, text: str) -> None:
+        """Enqueue follow-up drained when the assistant would stop."""
+        self.follow_up_queue.enqueue(user_message(text))
+
     async def prompt(self, text: str) -> list[AgentMessage]:
         from pi_agent.agent_loop import prompt_text
 
+        if self._run_task is not None:
+            raise AgentBusyError("Agent already running")
+
         return await self._run([prompt_text(text)])
+
+    async def continue_run(self) -> list[AgentMessage]:
+        """Run the loop again using queued steering/follow-ups (no prompt)."""
+        if self._run_task is not None:
+            raise AgentBusyError("Agent already running")
+
+        return await self._run([])
 
     async def _run(self, prompts: list[AgentMessage]) -> list[AgentMessage]:
         if self._run_task is not None:
-            await self._run_task
+            raise AgentBusyError("Agent already running")
         self._abort_event = asyncio.Event()
         self._idle.clear()
 
         async def emit(event: AgentEvent) -> None:
             await self._emit(event)
+
+        async def get_steering_messages() -> list[AgentMessage]:
+            return self.steering_queue.drain()
+
+        async def get_follow_up_messages() -> list[AgentMessage]:
+            return self.follow_up_queue.drain()
 
         config = AgentLoopConfig(
             model=self._model,
@@ -95,6 +129,8 @@ class Agent:
             api_key=self._api_key,
             request_headers=self._request_headers,
             thinking_level=self._thinking_level,
+            get_steering_messages=get_steering_messages,
+            get_follow_up_messages=get_follow_up_messages,
         )
         context = AgentContext(
             system_prompt=self._system_prompt,

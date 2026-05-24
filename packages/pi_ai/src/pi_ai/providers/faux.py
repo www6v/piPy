@@ -52,6 +52,7 @@ def faux_assistant_message(
     content: str | AssistantContent | list[AssistantContent],
     *,
     stop_reason: str = "stop",
+    error_message: str | None = None,
 ) -> AssistantMessage:
     if stop_reason == "stop" and not isinstance(content, str):
         blocks_check = content if isinstance(content, list) else [content]
@@ -71,6 +72,7 @@ def faux_assistant_message(
         usage=DEFAULT_USAGE,
         stop_reason=stop_reason,  # type: ignore[arg-type]
         timestamp=int(time.time() * 1000),
+        error_message=error_message,
     )
 
 

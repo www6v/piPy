@@ -35,6 +35,7 @@ from pi_ai.types import (
     Tool,
     ToolCall,
     ToolResultMessage,
+    UserMessage,
 )
 
 
@@ -211,51 +212,109 @@ async def run_agent_loop(
         messages=list(context.messages) + list(prompts),
         tools=context.tools,
     )
+    steer_fn = config.get_steering_messages
+    follow_fn = config.get_follow_up_messages
+
+    async def pull_steering() -> list[AgentMessage]:
+        if steer_fn is None:
+            return []
+        return await steer_fn()
+
+    async def pull_follow_ups() -> list[AgentMessage]:
+        if follow_fn is None:
+            return []
+        return await follow_fn()
+
     await _emit(emit, AgentStartEvent())
-    await _emit(emit, TurnStartEvent())
-    for prompt in prompts:
-        await _emit(emit, MessageStartEvent(message=prompt))
-        await _emit(emit, MessageEndEvent(message=prompt))
 
-    while True:
-        assistant = await _stream_assistant(
-            current,
-            config,
-            agent_tools,
-            signal,
-            emit,
-            stream_fn,
-        )
-        new_messages.append(assistant)
-        if assistant.stop_reason in ("error", "aborted"):
-            await _emit(emit, TurnEndEvent(message=assistant, tool_results=[]))
-            await _emit(emit, AgentEndEvent(messages=new_messages))
-            return new_messages
+    outer_continue = True
+    first_turn = True
 
-        tool_results, should_stop = await _execute_tools(
-            current,
-            assistant,
-            agent_tools,
-            config,
-            signal,
-            emit,
-        )
-        for result in tool_results:
-            current.messages.append(result)
-            new_messages.append(result)
-            await _emit(emit, MessageStartEvent(message=result))
-            await _emit(emit, MessageEndEvent(message=result))
+    while outer_continue:
+        outer_continue = False
 
-        await _emit(emit, TurnEndEvent(message=assistant, tool_results=tool_results))
-
-        has_tool_calls = any(
-            block.type == "toolCall" for block in assistant.content
-        )
-        if not has_tool_calls or should_stop:
-            await _emit(emit, AgentEndEvent(messages=new_messages))
-            return new_messages
+        steer_at_outer = await pull_steering()
 
         await _emit(emit, TurnStartEvent())
+
+        if first_turn:
+            for prompt in prompts:
+                await _emit(emit, MessageStartEvent(message=prompt))
+                await _emit(emit, MessageEndEvent(message=prompt))
+            first_turn = False
+
+        for message in steer_at_outer:
+            current.messages.append(message)
+            new_messages.append(message)
+            await _emit(emit, MessageStartEvent(message=message))
+            await _emit(emit, MessageEndEvent(message=message))
+
+        inner_continue = True
+        while inner_continue:
+            assistant = await _stream_assistant(
+                current,
+                config,
+                agent_tools,
+                signal,
+                emit,
+                stream_fn,
+            )
+            new_messages.append(assistant)
+
+            if assistant.stop_reason in ("error", "aborted"):
+                await _emit(
+                    emit,
+                    TurnEndEvent(message=assistant, tool_results=[]),
+                )
+                await _emit(emit, AgentEndEvent(messages=new_messages))
+                return new_messages
+
+            tool_results, should_stop = await _execute_tools(
+                current,
+                assistant,
+                agent_tools,
+                config,
+                signal,
+                emit,
+            )
+            for result in tool_results:
+                current.messages.append(result)
+                new_messages.append(result)
+                await _emit(emit, MessageStartEvent(message=result))
+                await _emit(emit, MessageEndEvent(message=result))
+
+            await _emit(
+                emit,
+                TurnEndEvent(message=assistant, tool_results=tool_results),
+            )
+
+            has_tool_calls = any(
+                block.type == "toolCall" for block in assistant.content
+            )
+            if has_tool_calls and not should_stop:
+                steer_after_tools = await pull_steering()
+                for message in steer_after_tools:
+                    current.messages.append(message)
+                    new_messages.append(message)
+                    await _emit(emit, MessageStartEvent(message=message))
+                    await _emit(emit, MessageEndEvent(message=message))
+
+                await _emit(emit, TurnStartEvent())
+                continue
+
+            inner_continue = False
+
+        follow_batch = await pull_follow_ups()
+        if follow_batch:
+            for message in follow_batch:
+                current.messages.append(message)
+                new_messages.append(message)
+                await _emit(emit, MessageStartEvent(message=message))
+                await _emit(emit, MessageEndEvent(message=message))
+            outer_continue = True
+
+    await _emit(emit, AgentEndEvent(messages=new_messages))
+    return new_messages
 
 
 def prompt_text(text: str) -> UserMessage:
