@@ -47,3 +47,26 @@ def test_parser_fork_flag() -> None:
     parser = build_parser()
     args = parser.parse_args(["--fork", "abc123"])
     assert args.fork_session == "abc123"
+
+
+def test_parser_resource_flags() -> None:
+    parser = build_parser()
+    args = parser.parse_args(
+        [
+            "--no-skills",
+            "--no-prompt-templates",
+            "--no-extensions",
+            "--skill",
+            "/tmp/skills",
+            "--prompt-template",
+            "/tmp/prompts",
+            "--extension",
+            "/tmp/ext.py",
+        ]
+    )
+    assert args.no_skills is True
+    assert args.no_prompt_templates is True
+    assert args.no_extensions is True
+    assert args.skill_paths == ["/tmp/skills"]
+    assert args.prompt_paths == ["/tmp/prompts"]
+    assert args.extension_paths == ["/tmp/ext.py"]

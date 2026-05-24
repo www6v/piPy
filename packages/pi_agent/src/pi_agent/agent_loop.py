@@ -92,21 +92,65 @@ async def _execute_tools(
 
     async def run_one(tool_call: ToolCall) -> tuple[ToolResultMessage, AgentToolResult]:
         tool = by_name.get(tool_call.name)
+        call_args = dict(tool_call.arguments)
         await _emit(
             emit,
             ToolExecutionStartEvent(
                 tool_call_id=tool_call.id,
                 tool_name=tool_call.name,
-                args=tool_call.arguments,
+                args=call_args,
             ),
         )
+        if config.on_tool_call is not None:
+            hook_result = await _maybe_await(
+                config.on_tool_call(tool_call.name, tool_call.id, call_args),
+            )
+            if isinstance(hook_result, dict):
+                if hook_result.get("block"):
+                    reason = str(hook_result.get("reason") or "Blocked by extension")
+                    result = AgentToolResult(
+                        content=[TextContent(text=reason)],
+                        is_error=True,
+                    )
+                    await _emit(
+                        emit,
+                        ToolExecutionEndEvent(
+                            tool_call_id=tool_call.id,
+                            tool_name=tool_call.name,
+                            result=result,
+                            is_error=True,
+                        ),
+                    )
+                    message = ToolResultMessage(
+                        tool_call_id=tool_call.id,
+                        tool_name=tool_call.name,
+                        content=result.content,
+                        is_error=True,
+                        timestamp=int(time.time() * 1000),
+                    )
+                    return message, result
+                if isinstance(hook_result.get("args"), dict):
+                    call_args = dict(hook_result["args"])
         if tool is None:
             result = AgentToolResult(
                 content=[TextContent(text=f"Unknown tool: {tool_call.name}")],
                 is_error=True,
             )
         else:
-            result = await _execute_tool(tool, tool_call, signal)
+            _validate_args(tool, call_args)
+            try:
+                result = await tool.execute(tool_call.id, call_args, signal)
+            except Exception as exc:
+                result = AgentToolResult(
+                    content=[TextContent(text=str(exc))],
+                    is_error=True,
+                )
+        if config.on_tool_result is not None:
+            hook_result = await _maybe_await(
+                config.on_tool_result(tool_call.name, tool_call.id, call_args, result),
+            )
+            if isinstance(hook_result, AgentToolResult):
+                result = hook_result
         await _emit(
             emit,
             ToolExecutionEndEvent(
@@ -251,6 +295,10 @@ async def run_agent_loop(
 
         inner_continue = True
         while inner_continue:
+            if config.on_context is not None:
+                rewritten = await _maybe_await(config.on_context(list(current.messages)))
+                if isinstance(rewritten, list):
+                    current.messages = rewritten
             assistant = await _stream_assistant(
                 current,
                 config,

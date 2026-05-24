@@ -25,6 +25,7 @@ For real models, omit `--provider faux` and configure `~/.pi/agent/models.json` 
 | `get_state` | Model, thinking, streaming, session paths |
 | `get_messages` | Full message list |
 | `get_available_models` | Registry models |
+| `get_commands` | Extension/prompt/skill slash commands currently available |
 | `set_model` | `{"type":"set_model","provider":"...","modelId":"..."}` |
 | `set_thinking_level` | `{"type":"set_thinking_level","level":"high"}` |
 | `new_session` | Fresh session file |
@@ -74,4 +75,4 @@ Prefer the **SDK** (`create_agent_session`) when both ends are Python.
 
 ## Not yet implemented
 
-Extension UI, `get_commands` — see pi `rpc.md` for the full protocol ahead of piPy.
+Extension UI — see pi `rpc.md` for the full protocol ahead of piPy.

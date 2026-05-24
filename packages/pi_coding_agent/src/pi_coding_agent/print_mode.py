@@ -29,6 +29,12 @@ class PrintModeOptions:
     session_path: str | None = None
     fork_session: str | None = None
     no_context_files: bool = False
+    no_skills: bool = False
+    no_prompt_templates: bool = False
+    no_extensions: bool = False
+    skill_paths: list[str] | None = None
+    prompt_paths: list[str] | None = None
+    extension_paths: list[str] | None = None
 
 
 def _to_run_config(options: PrintModeOptions) -> AgentRunConfig:
@@ -43,6 +49,12 @@ def _to_run_config(options: PrintModeOptions) -> AgentRunConfig:
         session_path=options.session_path,
         fork_session=options.fork_session,
         no_context_files=options.no_context_files,
+        no_skills=options.no_skills,
+        no_prompt_templates=options.no_prompt_templates,
+        no_extensions=options.no_extensions,
+        skill_paths=options.skill_paths,
+        prompt_paths=options.prompt_paths,
+        extension_paths=options.extension_paths,
     )
 
 

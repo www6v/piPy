@@ -25,6 +25,11 @@ from pi_coding_agent.context.loader import (
 )
 from pi_coding_agent.context.system_prompt import build_system_prompt
 from pi_coding_agent.defaults import DEFAULT_SYSTEM
+from pi_coding_agent.resources import format_skills_for_prompt
+from pi_coding_agent.resources.manager import (
+    ResourceManager,
+    create_resource_manager,
+)
 from pi_coding_agent.model_resolver import resolve_model_reference
 from pi_coding_agent.session.manager import SessionManager
 from pi_coding_agent.settings import load_settings
@@ -38,6 +43,12 @@ class CreateAgentSessionOptions:
     system_prompt: str | None = None
     system_prompt_is_final: bool = False
     no_context_files: bool = False
+    no_skills: bool = False
+    no_prompt_templates: bool = False
+    no_extensions: bool = False
+    skill_paths: list[str] | None = None
+    prompt_paths: list[str] | None = None
+    extension_paths: list[str] | None = None
     api_key: str | None = None
     provider: str | None = None
     thinking_level: str | None = None
@@ -107,6 +118,7 @@ def _resolve_system_prompt_for_session(
     cwd: Path,
     tools: list[str],
     opts: CreateAgentSessionOptions,
+    resources: ResourceManager | None = None,
 ) -> str:
     if opts.system_prompt is not None and opts.system_prompt_is_final:
         return opts.system_prompt
@@ -122,6 +134,9 @@ def _resolve_system_prompt_for_session(
         context_files_seq = load_project_context_files(cwd, agent_dir)
 
     custom_prompt = opts.system_prompt if explicit_user_system else system_replace
+    skills_section = ""
+    if resources is not None:
+        skills_section = format_skills_for_prompt(resources.skills)
 
     return build_system_prompt(
         cwd=cwd,
@@ -129,6 +144,7 @@ def _resolve_system_prompt_for_session(
         context_files=context_files_seq,
         custom_prompt=custom_prompt,
         append_sections=append_list,
+        skills_section=skills_section,
     )
 
 
@@ -197,11 +213,26 @@ async def create_agent_session(
         api_key_override=opts.api_key,
     )
     tools = opts.tools if opts.tools is not None else ["read", "bash"]
+    skill_paths = [*settings.skills, *(opts.skill_paths or [])]
+    prompt_paths = [*settings.prompts, *(opts.prompt_paths or [])]
+    extension_paths = [*settings.extensions, *(opts.extension_paths or [])]
+    resources = create_resource_manager(
+        cwd=cwd,
+        agent_dir=get_agent_dir(),
+        skill_paths=skill_paths,
+        prompt_paths=prompt_paths,
+        extension_paths=extension_paths,
+        no_skills=opts.no_skills,
+        no_prompt_templates=opts.no_prompt_templates,
+        no_extensions=opts.no_extensions,
+        enable_skill_commands=settings.enable_skill_commands,
+    )
     backend = _resolve_backend(cwd, opts)
     resolved_system_prompt = _resolve_system_prompt_for_session(
         cwd=cwd,
         tools=tools,
         opts=opts,
+        resources=resources,
     )
     session = AgentSession.build(
         cwd=cwd,
@@ -215,5 +246,7 @@ async def create_agent_session(
         request_headers=request_headers,
         provider_override=opts.provider,
         settings=settings,
+        resources=resources,
     )
+    await resources.extension_runtime.emit_session_start()
     return CreateAgentSessionResult(session=session, warning=warning)

@@ -26,6 +26,7 @@ from pi_coding_agent.session.manager import SessionManager
 from pi_coding_agent.session.serialize import model_to_dict
 from pi_coding_agent.session.types import CompactionResult
 from pi_coding_agent.retry import compute_retry_delay_ms, is_retryable_error
+from pi_coding_agent.resources.manager import ResourceManager
 from pi_coding_agent.settings import Settings, load_settings
 from pi_coding_agent.tools.registry import create_tools_for_names
 
@@ -155,6 +156,7 @@ class AgentSession:
         api_key: str | None,
         request_headers: dict[str, str] | None,
         settings: Settings,
+        resources: ResourceManager | None = None,
         provider_override: str | None = None,
     ) -> None:
         self._agent = agent
@@ -167,6 +169,7 @@ class AgentSession:
         self._request_headers = request_headers
         self._provider_override = provider_override
         self._settings = settings
+        self._resources = resources
         self._auto_compaction_enabled = settings.compaction.enabled
         self._reserve_tokens = settings.compaction.reserve_tokens
         self._keep_recent_tokens = settings.compaction.keep_recent_tokens
@@ -417,6 +420,7 @@ class AgentSession:
         self,
         text: str,
         streaming_behavior: str | None = None,
+        input_source: str = "interactive",
     ) -> list[AgentMessage]:
         if self.is_streaming:
             if streaming_behavior is None:
@@ -439,14 +443,43 @@ class AgentSession:
             )
             raise ValueError(msg)
 
+        if self._resources is not None:
+            handled = await self._resources.try_run_extension_command(text, self)
+            if handled:
+                return []
+            input_result = await self._resources.extension_runtime.emit_input(
+                text,
+                input_source,
+            )
+            if input_result.get("action") == "handled":
+                return []
+            if (
+                input_result.get("action") == "transform"
+                and isinstance(input_result.get("text"), str)
+            ):
+                text = str(input_result["text"])
+            text = self._resources.expand_text(text)
+
+        original_system_prompt = self._agent._system_prompt
+        if self._resources is not None:
+            before_start = await self._resources.extension_runtime.emit_before_agent_start(
+                text,
+                original_system_prompt,
+            )
+            if before_start and isinstance(before_start.get("systemPrompt"), str):
+                self._agent._system_prompt = before_start["systemPrompt"]
+
         snapshot_before = len(self._agent._messages)
         self._retry_abort_event.clear()
-        new_messages = await self._agent.prompt(text)
-        reconciled = await self._handle_post_run(new_messages)
-        appended = list(self._agent._messages[snapshot_before:])
-        self._backend.append_messages(appended)
-        await self._maybe_auto_compact()
-        return appended
+        try:
+            new_messages = await self._agent.prompt(text)
+            _reconciled = await self._handle_post_run(new_messages)
+            appended = list(self._agent._messages[snapshot_before:])
+            self._backend.append_messages(appended)
+            await self._maybe_auto_compact()
+            return appended
+        finally:
+            self._agent._system_prompt = original_system_prompt
 
 
     async def compact(
@@ -735,6 +768,19 @@ class AgentSession:
 
         return [message_to_dict(message) for message in self.messages]
 
+    def get_commands(self) -> list[dict[str, Any]]:
+        if self._resources is None:
+            return []
+        return [
+            {
+                "name": item.name,
+                "source": item.source,
+                "description": item.description,
+                "path": item.path,
+            }
+            for item in self._resources.list_commands()
+        ]
+
     async def new_session(self, *, cwd: Path | None = None) -> None:
         target = cwd or self.cwd
         manager = SessionManager.create(target)
@@ -761,21 +807,65 @@ class AgentSession:
         api_key: str | None,
         request_headers: dict[str, str] | None,
         settings: Settings | None = None,
+        resources: ResourceManager | None = None,
         provider_override: str | None = None,
     ) -> AgentSession:
         resolved_settings = settings or load_settings(cwd)
         steering_mode_q = _coerce_queue_mode(resolved_settings.steering_mode)
         follow_up_mode_q = _coerce_queue_mode(resolved_settings.follow_up_mode)
+        builtins = create_tools_for_names(str(cwd), tools)
+        extension_tools = (
+            list(resources.extension_runtime.tools)
+            if resources is not None
+            else []
+        )
+
+        async def on_context(messages: list[AgentMessage]) -> list[AgentMessage] | None:
+            if resources is None:
+                return None
+            return await resources.extension_runtime.emit_context(messages)
+
+        async def on_tool_call(
+            tool_name: str,
+            tool_call_id: str,
+            args: dict[str, Any],
+        ) -> dict[str, Any] | None:
+            if resources is None:
+                return None
+            return await resources.extension_runtime.emit_tool_call(
+                tool_name,
+                tool_call_id,
+                args,
+            )
+
+        async def on_tool_result(
+            tool_name: str,
+            tool_call_id: str,
+            args: dict[str, Any],
+            result: Any,
+        ) -> Any:
+            if resources is None:
+                return result
+            return await resources.extension_runtime.emit_tool_result(
+                tool_name,
+                tool_call_id,
+                args,
+                result,
+            )
+
         agent = Agent(
             system_prompt=system_prompt,
             model=model,
-            tools=create_tools_for_names(str(cwd), tools),
+            tools=[*builtins, *extension_tools],
             api_key=api_key,
             request_headers=request_headers,
             initial_messages=backend.load_messages(),
             thinking_level=thinking_level,
             steering_mode=steering_mode_q,
             follow_up_mode=follow_up_mode_q,
+            on_context=on_context if resources is not None else None,
+            on_tool_call=on_tool_call if resources is not None else None,
+            on_tool_result=on_tool_result if resources is not None else None,
         )
         return cls(
             agent=agent,
@@ -788,4 +878,5 @@ class AgentSession:
             request_headers=request_headers,
             provider_override=provider_override,
             settings=resolved_settings,
+            resources=resources,
         )

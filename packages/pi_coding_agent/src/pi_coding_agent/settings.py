@@ -38,6 +38,10 @@ class Settings:
     retry: RetrySettings = field(default_factory=RetrySettings)
     steering_mode: str = "one-at-a-time"
     follow_up_mode: str = "one-at-a-time"
+    skills: list[str] = field(default_factory=list)
+    prompts: list[str] = field(default_factory=list)
+    extensions: list[str] = field(default_factory=list)
+    enable_skill_commands: bool = True
 
 
 def _deep_merge(base: dict, override: dict) -> dict:
@@ -81,6 +85,16 @@ def _coerce_str(value: Any, default: str) -> str:
     if value is None or not isinstance(value, str):
         return default
     return value
+
+
+def _coerce_str_list(value: Any) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    out: list[str] = []
+    for item in value:
+        if isinstance(item, str) and item.strip():
+            out.append(item.strip())
+    return out
 
 
 def _parse_compaction(mapping: Mapping[str, Any]) -> CompactionSettings:
@@ -138,4 +152,11 @@ def load_settings(cwd: str | Path | None = None) -> Settings:
         retry=_parse_retry(merged),
         steering_mode=steering_mode,
         follow_up_mode=follow_up_mode,
+        skills=_coerce_str_list(merged.get("skills")),
+        prompts=_coerce_str_list(merged.get("prompts")),
+        extensions=_coerce_str_list(merged.get("extensions")),
+        enable_skill_commands=_coerce_bool(
+            merged.get("enableSkillCommands"),
+            True,
+        ),
     )

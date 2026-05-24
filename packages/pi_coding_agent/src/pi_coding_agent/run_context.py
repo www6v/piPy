@@ -24,6 +24,12 @@ class AgentRunConfig:
     session_path: str | None = None
     fork_session: str | None = None
     no_context_files: bool = False
+    no_skills: bool = False
+    no_prompt_templates: bool = False
+    no_extensions: bool = False
+    skill_paths: list[str] | None = None
+    prompt_paths: list[str] | None = None
+    extension_paths: list[str] | None = None
 
 
 # Backward-compatible alias used by print_mode imports.
@@ -46,6 +52,12 @@ async def create_agent_session_bundle(
             if system_prompt is not None
             else config.system_prompt,
             no_context_files=config.no_context_files,
+            no_skills=config.no_skills,
+            no_prompt_templates=config.no_prompt_templates,
+            no_extensions=config.no_extensions,
+            skill_paths=config.skill_paths,
+            prompt_paths=config.prompt_paths,
+            extension_paths=config.extension_paths,
             api_key=config.api_key,
             provider=config.provider,
             thinking_level=config.thinking_level,

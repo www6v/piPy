@@ -59,6 +59,7 @@ def build_system_prompt(
     context_files: list[ContextFile],
     custom_prompt: str | None = None,
     append_sections: list[str] | None = None,
+    skills_section: str | None = None,
     default_base: str | None = None,
 ) -> str:
     """Assemble the system prompt with optional custom base and project context.
@@ -92,6 +93,7 @@ def build_system_prompt(
         append_blob = "\n\n" + "\n\n".join(appends_list)
 
     context_block = _format_project_context(context_files)
+    skills_block = skills_section or ""
     footer = (
         f"\nCurrent date: {today}"
         f"\nCurrent working directory: {prompt_cwd}"
@@ -103,6 +105,8 @@ def build_system_prompt(
             prompt += append_blob
         if context_block:
             prompt += context_block
+        if skills_block:
+            prompt += skills_block
         prompt += footer
         return prompt
 
@@ -113,5 +117,7 @@ def build_system_prompt(
         prompt += append_blob
     if context_block:
         prompt += context_block
+    if skills_block:
+        prompt += skills_block
     prompt += footer
     return prompt

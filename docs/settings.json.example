@@ -3,6 +3,12 @@
   "defaultModel": "claude-sonnet-4-6",
   "defaultThinkingLevel": "medium",
   "quietStartup": false,
+  "enableSkillCommands": true,
+  "skills": [
+    "~/.claude/skills"
+  ],
+  "prompts": [],
+  "extensions": [],
   "steeringMode": "one-at-a-time",
   "followUpMode": "one-at-a-time",
   "compaction": {

@@ -16,6 +16,7 @@ from pi_agent.types import (
     AgentMessage,
     AgentState,
     AgentTool,
+    AgentToolResult,
     user_message,
 )
 from pi_ai.types import Context, Model, Tool
@@ -39,6 +40,21 @@ class Agent:
         thinking_level: str | None = None,
         steering_mode: QueueMode = "all",
         follow_up_mode: QueueMode = "all",
+        on_context: Callable[
+            [list[AgentMessage]],
+            list[AgentMessage] | None | Awaitable[list[AgentMessage] | None],
+        ]
+        | None = None,
+        on_tool_call: Callable[
+            [str, str, dict[str, Any]],
+            dict[str, Any] | None | Awaitable[dict[str, Any] | None],
+        ]
+        | None = None,
+        on_tool_result: Callable[
+            [str, str, dict[str, Any], AgentToolResult],
+            AgentToolResult | None | Awaitable[AgentToolResult | None],
+        ]
+        | None = None,
     ) -> None:
         self._system_prompt = system_prompt
         self._model = model
@@ -48,6 +64,9 @@ class Agent:
         self._request_headers = request_headers
         self._thinking_level = thinking_level
         self._convert_to_llm = convert_to_llm_fn or convert_to_llm
+        self._on_context = on_context
+        self._on_tool_call = on_tool_call
+        self._on_tool_result = on_tool_result
         self.steering_queue = PendingMessageQueue(mode=steering_mode)
         self.follow_up_queue = PendingMessageQueue(mode=follow_up_mode)
         self._subscribers: list[
@@ -131,6 +150,9 @@ class Agent:
             thinking_level=self._thinking_level,
             get_steering_messages=get_steering_messages,
             get_follow_up_messages=get_follow_up_messages,
+            on_context=self._on_context,
+            on_tool_call=self._on_tool_call,
+            on_tool_result=self._on_tool_result,
         )
         context = AgentContext(
             system_prompt=self._system_prompt,

@@ -82,6 +82,12 @@ class RpcModeOptions:
     session_path: str | None
     fork_session: str | None = None
     no_context_files: bool = False
+    no_skills: bool = False
+    no_prompt_templates: bool = False
+    no_extensions: bool = False
+    skill_paths: list[str] | None = None
+    prompt_paths: list[str] | None = None
+    extension_paths: list[str] | None = None
 
 
 async def run_rpc_mode(options: RpcModeOptions) -> int:
@@ -101,6 +107,12 @@ async def run_rpc_mode(options: RpcModeOptions) -> int:
             session_path=options.session_path,
             fork_session=options.fork_session,
             no_context_files=options.no_context_files,
+            no_skills=options.no_skills,
+            no_prompt_templates=options.no_prompt_templates,
+            no_extensions=options.no_extensions,
+            skill_paths=options.skill_paths,
+            prompt_paths=options.prompt_paths,
+            extension_paths=options.extension_paths,
         )
     )
     session = result.session
@@ -145,7 +157,11 @@ async def run_rpc_mode(options: RpcModeOptions) -> int:
                 _write_stdout(_success(request_id, "prompt"))
                 async with prompt_lock:
                     try:
-                        await session.prompt(message, streaming_behavior=stream_behavior)
+                        await session.prompt(
+                            message,
+                            streaming_behavior=stream_behavior,
+                            input_source="rpc",
+                        )
                         await session.wait_for_idle()
                     except Exception as exc:
                         _write_stdout(
@@ -159,7 +175,11 @@ async def run_rpc_mode(options: RpcModeOptions) -> int:
             _write_stdout(_success(request_id, "prompt"))
             async with prompt_lock:
                 try:
-                    await session.prompt(message, streaming_behavior=None)
+                    await session.prompt(
+                        message,
+                        streaming_behavior=None,
+                        input_source="rpc",
+                    )
                     await session.wait_for_idle()
                 except Exception as exc:
                     _write_stdout(
@@ -188,6 +208,16 @@ async def run_rpc_mode(options: RpcModeOptions) -> int:
                     request_id,
                     "get_messages",
                     {"messages": session.get_messages_json()},
+                )
+            )
+            return
+
+        if cmd_type == "get_commands":
+            _write_stdout(
+                _success(
+                    request_id,
+                    "get_commands",
+                    {"commands": session.get_commands()},
                 )
             )
             return

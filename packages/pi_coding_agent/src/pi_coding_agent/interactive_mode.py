@@ -28,6 +28,12 @@ class InteractiveOptions:
     session_path: str | None
     fork_session: str | None = None
     no_context_files: bool = False
+    no_skills: bool = False
+    no_prompt_templates: bool = False
+    no_extensions: bool = False
+    skill_paths: list[str] | None = None
+    prompt_paths: list[str] | None = None
+    extension_paths: list[str] | None = None
 
 
 def _print_help() -> None:
@@ -116,6 +122,12 @@ async def run_interactive_mode(options: InteractiveOptions) -> int:
         session_path=options.session_path,
         fork_session=options.fork_session,
         no_context_files=options.no_context_files,
+        no_skills=options.no_skills,
+        no_prompt_templates=options.no_prompt_templates,
+        no_extensions=options.no_extensions,
+        skill_paths=options.skill_paths,
+        prompt_paths=options.prompt_paths,
+        extension_paths=options.extension_paths,
     )
     session = await create_agent_session_bundle(run_config)
     model_label = f"{session.model.provider}/{session.model.id}"
@@ -228,7 +240,9 @@ async def run_interactive_mode(options: InteractiveOptions) -> int:
             print(f"Switched to {model_label}")
             continue
         if line.startswith("/"):
-            print(f"Unknown command: {line.split()[0]}", file=sys.stderr)
+            turn_task = asyncio.create_task(
+                _run_turn(session, line, verbose=options.verbose),
+            )
             continue
         turn_task = asyncio.create_task(
             _run_turn(session, line, verbose=options.verbose),

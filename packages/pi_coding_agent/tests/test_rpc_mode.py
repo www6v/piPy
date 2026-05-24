@@ -144,3 +144,39 @@ def test_rpc_bash_get_stats_and_export_html(tmp_path: Path) -> None:
     assert html_path.is_file()
     content = html_path.read_text(encoding="utf-8")
     assert "piPy session export" in content
+
+
+def test_rpc_get_commands_includes_prompt_template(tmp_path: Path) -> None:
+    prompts_dir = tmp_path / ".pi" / "prompts"
+    prompts_dir.mkdir(parents=True, exist_ok=True)
+    (prompts_dir / "quick.md").write_text(
+        "---\n"
+        "description: quick helper\n"
+        "---\n"
+        "Say hi.\n",
+        encoding="utf-8",
+    )
+    cli_cmd = [
+        sys.executable,
+        "-m",
+        "pi_coding_agent.cli",
+        "--mode",
+        "rpc",
+        "--no-session",
+        "--no-context-files",
+        "--provider",
+        "faux",
+        "--model",
+        "faux/rpc_get_commands",
+        "--tools",
+        "read",
+    ]
+    client = RpcClient(command=cli_cmd, cwd=tmp_path)
+    client.start()
+    try:
+        response, _events = client.request({"id": "gc1", "type": "get_commands"})
+    finally:
+        client.close()
+    assert response["success"] is True
+    commands = response["data"]["commands"]
+    assert any(item["name"] == "quick" and item["source"] == "prompt" for item in commands)

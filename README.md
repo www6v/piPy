@@ -154,6 +154,29 @@ See [docs/rpc.md](docs/rpc.md). Python helper: `pi_coding_agent.rpc_client.RpcCl
 
 Further work: extensions, fuller RPC parity — see pi docs.
 
+## P3b resources (in progress)
+
+Skills, prompt templates, and Python extensions now load with pi-style locations
+and can be enabled/disabled via CLI flags.
+
+| Resource | Default locations |
+|----------|-------------------|
+| Skills | `~/.pi/agent/skills`, `~/.agents/skills`, `.pi/skills`, ancestor `.agents/skills` |
+| Prompts | `~/.pi/agent/prompts`, `.pi/prompts` |
+| Extensions | `~/.pi/agent/extensions`, `.pi/extensions` |
+
+Key flags:
+
+```bash
+./pipy-test.sh --no-skills --no-prompt-templates --no-extensions
+./pipy-test.sh --skill ./skills --prompt-template ./prompts --extension ./ext.py
+```
+
+Supported command expansion:
+- Prompt templates: `/template-name ...`
+- Skills: `/skill:skill-name ...` (controlled by `enableSkillCommands`)
+- Extensions: custom slash commands registered by Python extension modules
+
 ## Interactive mode
 
 无参数启动 REPL（无 TUI，对标 pi「Start here」最小交互）：

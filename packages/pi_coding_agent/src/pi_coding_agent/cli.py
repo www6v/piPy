@@ -45,6 +45,43 @@ def build_parser() -> argparse.ArgumentParser:
         help="Skip loading AGENTS.md / CLAUDE.md into the system prompt",
     )
     parser.add_argument(
+        "--no-skills",
+        action="store_true",
+        help="Disable skill discovery and /skill:* expansion",
+    )
+    parser.add_argument(
+        "--no-prompt-templates",
+        action="store_true",
+        help="Disable prompt template discovery and /template expansion",
+    )
+    parser.add_argument(
+        "--no-extensions",
+        action="store_true",
+        help="Disable extension discovery",
+    )
+    parser.add_argument(
+        "--skill",
+        dest="skill_paths",
+        action="append",
+        default=[],
+        help="Add extra skill file/directory path (repeatable)",
+    )
+    parser.add_argument(
+        "--prompt-template",
+        dest="prompt_paths",
+        action="append",
+        default=[],
+        help="Add extra prompt template path (repeatable)",
+    )
+    parser.add_argument(
+        "-e",
+        "--extension",
+        dest="extension_paths",
+        action="append",
+        default=[],
+        help="Add extra extension file/directory path (repeatable)",
+    )
+    parser.add_argument(
         "--tools",
         default="read,bash",
         help="Comma-separated tool allowlist (default: read,bash)",
@@ -212,6 +249,12 @@ def main(argv: list[str] | None = None) -> int:
             session_path=selected_session_path,
             no_context_files=args.no_context_files,
             fork_session=args.fork_session,
+            no_skills=args.no_skills,
+            no_prompt_templates=args.no_prompt_templates,
+            no_extensions=args.no_extensions,
+            skill_paths=args.skill_paths,
+            prompt_paths=args.prompt_paths,
+            extension_paths=args.extension_paths,
         )
         try:
             return asyncio.run(run_rpc_mode(rpc_options))
@@ -238,6 +281,12 @@ def main(argv: list[str] | None = None) -> int:
             session_path=selected_session_path,
             fork_session=args.fork_session,
             no_context_files=args.no_context_files,
+            no_skills=args.no_skills,
+            no_prompt_templates=args.no_prompt_templates,
+            no_extensions=args.no_extensions,
+            skill_paths=args.skill_paths,
+            prompt_paths=args.prompt_paths,
+            extension_paths=args.extension_paths,
         )
         try:
             return asyncio.run(run_print_mode(options))
@@ -262,6 +311,12 @@ def main(argv: list[str] | None = None) -> int:
             session_path=selected_session_path,
             fork_session=args.fork_session,
             no_context_files=args.no_context_files,
+            no_skills=args.no_skills,
+            no_prompt_templates=args.no_prompt_templates,
+            no_extensions=args.no_extensions,
+            skill_paths=args.skill_paths,
+            prompt_paths=args.prompt_paths,
+            extension_paths=args.extension_paths,
         )
         try:
             return asyncio.run(run_print_mode(options))
@@ -283,6 +338,12 @@ def main(argv: list[str] | None = None) -> int:
         session_path=selected_session_path,
         fork_session=args.fork_session,
         no_context_files=args.no_context_files,
+        no_skills=args.no_skills,
+        no_prompt_templates=args.no_prompt_templates,
+        no_extensions=args.no_extensions,
+        skill_paths=args.skill_paths,
+        prompt_paths=args.prompt_paths,
+        extension_paths=args.extension_paths,
     )
     try:
         return asyncio.run(run_interactive_mode(interactive))

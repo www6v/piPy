@@ -166,6 +166,27 @@ class AgentLoopConfig:
     get_follow_up_messages: (
         Callable[[], Awaitable[list[AgentMessage]]] | None
     ) = None
+    on_context: (
+        Callable[
+            [list[AgentMessage]],
+            list[AgentMessage] | None | Awaitable[list[AgentMessage] | None],
+        ]
+        | None
+    ) = None
+    on_tool_call: (
+        Callable[
+            [str, str, dict[str, Any]],
+            dict[str, Any] | None | Awaitable[dict[str, Any] | None],
+        ]
+        | None
+    ) = None
+    on_tool_result: (
+        Callable[
+            [str, str, dict[str, Any], AgentToolResult],
+            AgentToolResult | None | Awaitable[AgentToolResult | None],
+        ]
+        | None
+    ) = None
 
 
 def user_message(text: str) -> UserMessage:
