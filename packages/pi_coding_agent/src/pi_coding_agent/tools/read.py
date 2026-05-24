@@ -9,6 +9,7 @@ from pathlib import Path
 from pi_agent.types import AgentToolResult, ToolExecutionMode
 from pi_ai.types import TextContent
 
+from pi_coding_agent.tools.path_utils import resolve_under_cwd
 from pi_coding_agent.tools.truncate import truncate_tail
 
 READ_SCHEMA = {
@@ -22,17 +23,6 @@ READ_SCHEMA = {
     "required": ["path"],
     "additionalProperties": False,
 }
-
-
-def _resolve_under_cwd(cwd: Path, path: str) -> Path:
-    candidate = Path(path)
-    if not candidate.is_absolute():
-        candidate = cwd / candidate
-    resolved = candidate.resolve()
-    cwd_resolved = cwd.resolve()
-    if resolved != cwd_resolved and cwd_resolved not in resolved.parents:
-        raise ValueError(f"Path escapes working directory: {path}")
-    return resolved
 
 
 @dataclass
@@ -54,7 +44,7 @@ class ReadTool:
     ) -> AgentToolResult:
         del tool_call_id, signal, on_update
         path_arg = args["path"]
-        resolved = _resolve_under_cwd(Path(self.cwd), path_arg)
+        resolved = resolve_under_cwd(Path(self.cwd), path_arg)
         if not resolved.is_file():
             raise FileNotFoundError(f"File not found: {path_arg}")
         text = resolved.read_text(encoding="utf-8", errors="replace")

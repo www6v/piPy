@@ -20,3 +20,11 @@ def get_agent_dir() -> Path:
 
 def get_models_path() -> Path:
     return get_agent_dir() / "models.json"
+
+
+def get_auth_path() -> Path:
+    return get_agent_dir() / "auth.json"
+
+
+def get_sessions_dir() -> Path:
+    return get_agent_dir() / "sessions"

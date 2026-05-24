@@ -73,12 +73,37 @@ Matches pi MVP acceptance: `agent_start` → `turn_start` → `message_*` → `t
 ./pipy-test.sh -v -p "List files" --provider faux --model faux/test
 ```
 
-## MVP limits
+## P1 features (implemented)
+
+| Feature | Usage |
+|---------|--------|
+| Tools `edit`, `write`, `grep` | `--tools read,edit,write,grep,bash` |
+| Session JSONL | auto per cwd; `-c` continue; `--session path.jsonl` |
+| `auth.json` | `~/.pi/agent/auth.json` (same format as [pi](https://pi.dev/docs/latest)) |
+| `--mode json` | JSONL events on stdout ([JSON mode](https://pi.dev/docs/latest)) |
+| `--list-models` | List built-in + models.json models |
+
+```bash
+# Edit a file
+./pipy-test.sh -p "Add a header comment to README.md" --tools read,edit
+
+# Continue last session in this directory
+./pipy-test.sh -c -p "What did we discuss?"
+
+# JSON event stream
+./pipy-test.sh --mode json -p "hi" --provider faux --model faux/test
+```
+
+## Roadmap
+
+Further work: [docs/superpowers/plans/2026-05-23-pipy-p1.md](docs/superpowers/plans/2026-05-23-pipy-p1.md) §8（glob/find/ls、REPL、compaction、RPC）。
+
+## Limits
 
 - Print mode only (`-p`); no interactive TUI
-- No `auth.json` / OAuth (use env vars or models.json `apiKey`)
+- OAuth `/login` not implemented (use `auth.json` `api_key` or env vars)
 - APIs: `openai-completions`, `anthropic-messages` only
-- Tools: `read`, `bash`
+- Default tools: `read`, `bash` (also available: `edit`, `write`, `grep`)
 
 ## Environment
 

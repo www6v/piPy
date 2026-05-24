@@ -28,12 +28,13 @@ class Agent:
         tools: list[AgentTool] | None = None,
         api_key: str | None = None,
         request_headers: dict[str, str] | None = None,
+        initial_messages: list[AgentMessage] | None = None,
         convert_to_llm_fn: Callable[..., Any] | None = None,
     ) -> None:
         self._system_prompt = system_prompt
         self._model = model
         self._tools = list(tools or [])
-        self._messages: list[AgentMessage] = []
+        self._messages: list[AgentMessage] = list(initial_messages or [])
         self._api_key = api_key
         self._request_headers = request_headers
         self._convert_to_llm = convert_to_llm_fn or convert_to_llm
