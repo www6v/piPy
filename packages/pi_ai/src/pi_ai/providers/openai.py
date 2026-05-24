@@ -44,10 +44,21 @@ def _usage_from_response(data: dict[str, Any]) -> Usage:
     )
 
 
-def _messages_for_api(context: Context) -> list[dict[str, Any]]:
+def _system_role(model: Model) -> str:
+    if model.reasoning and model.supports_developer_role:
+        return "developer"
+    return "system"
+
+
+def _messages_for_api(context: Context, model: Model) -> list[dict[str, Any]]:
     out: list[dict[str, Any]] = []
     if context.system_prompt:
-        out.append({"role": "system", "content": context.system_prompt})
+        out.append(
+            {
+                "role": _system_role(model),
+                "content": context.system_prompt,
+            }
+        )
     for message in context.messages:
         if message.role == "user":
             content = (
@@ -226,6 +237,7 @@ async def stream_openai(
     *,
     api_key: str | None = None,
     request_headers: dict[str, str] | None = None,
+    thinking_level: str | None = None,
     signal: Any = None,
     client: httpx.AsyncClient | None = None,
 ) -> AsyncIterator[StreamEvent]:
@@ -250,7 +262,7 @@ async def stream_openai(
 
     body: dict[str, Any] = {
         "model": model.id,
-        "messages": _messages_for_api(context),
+        "messages": _messages_for_api(context, model),
         "stream": True,
     }
     if context.tools:
@@ -265,8 +277,15 @@ async def stream_openai(
             }
             for tool in context.tools
         ]
-    if model.thinking_format == "qwen" and model.reasoning:
+    level = thinking_level or "off"
+    if model.thinking_format == "qwen" and model.reasoning and level != "off":
         body["enable_thinking"] = True
+    elif (
+        model.reasoning
+        and model.supports_reasoning_effort
+        and level not in ("", "off")
+    ):
+        body["reasoning_effort"] = level
 
     stream_state = _OpenAIStreamState()
     partial = AssistantMessage(

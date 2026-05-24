@@ -91,6 +91,7 @@ def stream_simple(
     tools: list[Any] | None = None,
     api_key: str | None = None,
     request_headers: dict[str, str] | None = None,
+    thinking_level: str | None = None,
     signal: Any = None,
     client: Any = None,
 ) -> AssistantMessageStream:
@@ -108,6 +109,7 @@ def stream_simple(
                 ctx,
                 api_key=api_key,
                 request_headers=request_headers,
+                thinking_level=thinking_level,
                 signal=signal,
                 client=client,
             )
@@ -119,6 +121,7 @@ def stream_simple(
                 ctx,
                 api_key=api_key,
                 request_headers=request_headers,
+                thinking_level=thinking_level,
                 signal=signal,
                 client=client,
             )

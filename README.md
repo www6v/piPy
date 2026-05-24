@@ -98,12 +98,69 @@ Matches pi MVP acceptance: `agent_start` → `turn_start` → `message_*` → `t
 
 Further work: [docs/superpowers/plans/2026-05-23-pipy-p1.md](docs/superpowers/plans/2026-05-23-pipy-p1.md) §8（glob/find/ls、REPL、compaction、RPC）。
 
+## Interactive mode
+
+无参数启动 REPL（无 TUI，对标 pi「Start here」最小交互）：
+
+```bash
+./pipy-test.sh
+```
+
+| 命令 | 说明 |
+|------|------|
+| `/help` | 帮助 |
+| `/exit` | 退出 |
+| `/model [pattern]` | 查看或切换模型（支持 `provider/model:high`） |
+| `/tools` | 当前工具列表 |
+| `/session` | 会话文件路径 |
+
+单行 prompt 也可直接运行（等同 `-p`）：
+
+```bash
+./pipy-test.sh "hello"
+```
+
+## Settings (`settings.json`)
+
+与 pi 相同路径：全局 `~/.pi/agent/settings.json`，项目 `.pi/settings.json`（后者覆盖前者）。
+
+```json
+{
+  "defaultProvider": "anthropic",
+  "defaultModel": "claude-sonnet-4-5",
+  "defaultThinkingLevel": "medium"
+}
+```
+
+CLI：`--model`、`--thinking` 优先于 settings；模型 pattern 支持 `anthropic/claude-sonnet-4-5:high`。
+
+## Tools
+
+默认：`read,bash`。全部内置：`read`, `edit`, `write`, `grep`, `find`, `ls`, `bash`。
+
+```bash
+./pipy-test.sh --tools read,find,ls -p "list python files"
+```
+
+## OpenAI `compat`（models.json）
+
+对 `openai-completions` 网关可设置：
+
+```json
+"compat": {
+  "supportsDeveloperRole": false,
+  "supportsReasoningEffort": false,
+  "thinkingFormat": "qwen"
+}
+```
+
+`supportsDeveloperRole: false` 时 system prompt 使用 `system` 角色而非 `developer`。
+
 ## Limits
 
-- Print mode only (`-p`); no interactive TUI
-- OAuth `/login` not implemented (use `auth.json` `api_key` or env vars)
-- APIs: `openai-completions`, `anthropic-messages` only
-- Default tools: `read`, `bash` (also available: `edit`, `write`, `grep`)
+- 交互为终端 REPL，无 pi TUI / 主题 / 快捷键
+- OAuth `/login` 未实现（用 `auth.json` 或环境变量）
+- API：`openai-completions`、`anthropic-messages`
 
 ## Environment
 

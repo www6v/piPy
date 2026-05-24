@@ -178,12 +178,23 @@ def parse_anthropic_sse_data(line: str) -> dict[str, Any] | None:
     return json.loads(payload)
 
 
+def _anthropic_thinking_budget(level: str) -> int:
+    return {
+        "minimal": 1024,
+        "low": 2048,
+        "medium": 8192,
+        "high": 16384,
+        "xhigh": 32768,
+    }.get(level, 4096)
+
+
 async def stream_anthropic(
     model: Model,
     context: Context,
     *,
     api_key: str | None = None,
     request_headers: dict[str, str] | None = None,
+    thinking_level: str | None = None,
     signal: Any = None,
     client: httpx.AsyncClient | None = None,
 ) -> AsyncIterator[StreamEvent]:
@@ -222,6 +233,12 @@ async def stream_anthropic(
             }
             for tool in context.tools
         ]
+    level = thinking_level or "off"
+    if model.reasoning and level not in ("", "off"):
+        body["thinking"] = {
+            "type": "enabled",
+            "budget_tokens": _anthropic_thinking_budget(level),
+        }
 
     stream_state = _AnthropicStreamState()
     partial = AssistantMessage(

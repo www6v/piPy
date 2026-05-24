@@ -96,8 +96,13 @@ def _apply_model_override(model: Model, override: dict[str, Any]) -> Model:
             cache_write=float(cost.get("cacheWrite", model.cost.cache_write)),
         )
     compat = override.get("compat")
-    if compat and compat.get("thinkingFormat"):
-        model.thinking_format = str(compat["thinkingFormat"])
+    if compat:
+        if compat.get("thinkingFormat"):
+            model.thinking_format = str(compat["thinkingFormat"])
+        if compat.get("supportsDeveloperRole") is not None:
+            model.supports_developer_role = bool(compat["supportsDeveloperRole"])
+        if compat.get("supportsReasoningEffort") is not None:
+            model.supports_reasoning_effort = bool(compat["supportsReasoningEffort"])
     headers = override.get("headers")
     if headers:
         model.headers = {**model.headers, **headers} if model.headers else dict(headers)
@@ -227,12 +232,25 @@ def validate_and_parse(config: dict[str, Any]) -> ModelsJsonLoadResult:
                         "no baseUrl available."
                     ),
                 )
-            thinking_format = _merge_thinking_format(
-                provider_compat if isinstance(provider_compat, dict) else None,
+            model_compat = (
                 model_def.get("compat")
                 if isinstance(model_def.get("compat"), dict)
-                else None,
+                else None
             )
+            provider_compat_dict = (
+                provider_compat if isinstance(provider_compat, dict) else None
+            )
+            thinking_format = _merge_thinking_format(
+                provider_compat_dict,
+                model_compat,
+            )
+            supports_developer = True
+            supports_reasoning = True
+            for compat_source in (provider_compat_dict, model_compat):
+                if compat_source and compat_source.get("supportsDeveloperRole") is not None:
+                    supports_developer = bool(compat_source["supportsDeveloperRole"])
+                if compat_source and compat_source.get("supportsReasoningEffort") is not None:
+                    supports_reasoning = bool(compat_source["supportsReasoningEffort"])
             model_headers = model_def.get("headers")
             if model_headers:
                 result.model_headers[f"{provider_name}:{model_id}"] = dict(
@@ -251,6 +269,8 @@ def validate_and_parse(config: dict[str, Any]) -> ModelsJsonLoadResult:
                     context_window=int(model_def.get("contextWindow", 128_000)),
                     max_tokens=int(model_def.get("maxTokens", 16_384)),
                     thinking_format=thinking_format,
+                    supports_developer_role=supports_developer,
+                    supports_reasoning_effort=supports_reasoning,
                 )
             )
 

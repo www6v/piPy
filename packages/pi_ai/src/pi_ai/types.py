@@ -34,6 +34,9 @@ class Model:
     headers: dict[str, str] | None = None
     # models.json provider.authHeader -> Authorization: Bearer <key>.
     auth_header: bool = False
+    # models.json compat (openai-completions).
+    supports_developer_role: bool = True
+    supports_reasoning_effort: bool = True
 
 
 @dataclass

@@ -163,6 +163,7 @@ async def _stream_assistant(
         tools=llm_context.tools,
         api_key=api_key,
         request_headers=config.request_headers,
+        thinking_level=config.thinking_level,
         signal=signal,
     )
     if asyncio.iscoroutine(response):

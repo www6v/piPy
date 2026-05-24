@@ -30,6 +30,7 @@ class Agent:
         request_headers: dict[str, str] | None = None,
         initial_messages: list[AgentMessage] | None = None,
         convert_to_llm_fn: Callable[..., Any] | None = None,
+        thinking_level: str | None = None,
     ) -> None:
         self._system_prompt = system_prompt
         self._model = model
@@ -37,6 +38,7 @@ class Agent:
         self._messages: list[AgentMessage] = list(initial_messages or [])
         self._api_key = api_key
         self._request_headers = request_headers
+        self._thinking_level = thinking_level
         self._convert_to_llm = convert_to_llm_fn or convert_to_llm
         self._subscribers: list[
             Callable[[AgentEvent], None | Awaitable[None]]
@@ -92,6 +94,7 @@ class Agent:
             convert_to_llm=self._convert_to_llm,
             api_key=self._api_key,
             request_headers=self._request_headers,
+            thinking_level=self._thinking_level,
         )
         context = AgentContext(
             system_prompt=self._system_prompt,

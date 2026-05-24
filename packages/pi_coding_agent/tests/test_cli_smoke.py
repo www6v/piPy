@@ -2,7 +2,11 @@ from pi_coding_agent.cli import build_parser, main
 
 
 def test_help_exits_zero() -> None:
-    assert main([]) == 0
+    import pytest
+
+    with pytest.raises(SystemExit) as exc:
+        main(["--help"])
+    assert exc.value.code == 0
 
 
 def test_parser_defaults() -> None:
