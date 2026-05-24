@@ -107,9 +107,10 @@ async def _run_agent_session(
     )
 
     final_text = ""
+    final_assistant = None
 
     def handle_event(event: AgentEvent) -> None:
-        nonlocal final_text
+        nonlocal final_text, final_assistant
         if options.verbose and options.mode == "text":
             log_agent_event(event)
         on_event(event)
@@ -121,6 +122,7 @@ async def _run_agent_session(
                         sys.stdout.write(delta)
                         sys.stdout.flush()
         if event.type == "message_end" and event.message.role == "assistant":
+            final_assistant = event.message
             parts = [
                 block.text
                 for block in event.message.content
@@ -135,6 +137,14 @@ async def _run_agent_session(
 
     if stream_text_to_stdout and final_text and not final_text.endswith("\n"):
         sys.stdout.write("\n")
+
+    if final_assistant is not None and final_assistant.stop_reason in (
+        "error",
+        "aborted",
+    ):
+        error_message = final_assistant.error_message or "Agent request failed"
+        print(f"Error: {error_message}", file=sys.stderr)
+        return 1
     return 0
 
 

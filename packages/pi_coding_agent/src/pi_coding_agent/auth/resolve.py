@@ -20,6 +20,6 @@ def resolve_auth_for_model(
     storage = auth or get_auth_storage()
     stored = storage.get_api_key(model.provider)
     if stored:
-        headers = registry.resolve_request_headers(model)
-        return stored, headers
+        # Apply models.json authHeader (Bearer) and headers like env-based keys.
+        return registry.resolve_auth(model, api_key_override=stored)
     return registry.resolve_auth(model)

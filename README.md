@@ -112,3 +112,38 @@ Further work: [docs/superpowers/plans/2026-05-23-pipy-p1.md](docs/superpowers/pl
 | Claude | `ANTHROPIC_API_KEY`, `ANTHROPIC_OAUTH_TOKEN` |
 | OpenAI | `OPENAI_API_KEY` |
 | Custom (e.g. DashScope) | Set in models.json `apiKey` (e.g. `DASHSCOPE_API_KEY`) |
+
+### Anta 企业 Anthropic 网关（`claude-sonnet-4-6`）
+
+与 curl 等价：`POST …/private/llm/v1/messages`，`Authorization: Bearer <token>`。
+
+1. 复制示例配置（**勿把 token 提交进 git**）：
+
+```bash
+cp docs/models.json.example ~/.pi/agent/models.json
+```
+
+2. 设置 token（任选其一）：
+
+```bash
+export ANTA_AI_TOKEN='你的 Bearer token'
+```
+
+或写入 `~/.pi/agent/auth.json`（与 pi 相同格式）：
+
+```json
+{
+  "anthropic": {
+    "type": "api_key",
+    "key": "你的 Bearer token"
+  }
+}
+```
+
+3. 运行：
+
+```bash
+./pipy-test.sh --model anthropic/claude-sonnet-4-6 -p "你是什么模型？"
+```
+
+`baseUrl` 在示例里为 `https://ai.anta.com/aimodels-server/private/llm`（piPy 会请求 `{baseUrl}/v1/messages`）。`authHeader: true` 表示使用 Bearer，而不是官方 `x-api-key`。

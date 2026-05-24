@@ -1,5 +1,17 @@
 {
   "providers": {
+    "anthropic": {
+      "baseUrl": "https://ai.anta.com/aimodels-server/private/llm",
+      "api": "anthropic-messages",
+      "apiKey": "ANTA_AI_TOKEN",
+      "authHeader": true,
+      "models": [
+        {
+          "id": "claude-sonnet-4-6",
+          "name": "Claude Sonnet 4.6 (Anta gateway)"
+        }
+      ]
+    },
     "dashscope": {
       "baseUrl": "https://dashscope.aliyuncs.com/compatible-mode/v1",
       "api": "openai-completions",
