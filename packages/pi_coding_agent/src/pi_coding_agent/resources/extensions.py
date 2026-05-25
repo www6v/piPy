@@ -10,6 +10,7 @@ from typing import Any
 
 from pi_agent.types import AgentMessage, AgentTool, AgentToolResult
 from pi_ai.types import TextContent
+from pi_coding_agent.resources.source_info import SourceInfo, classify_source_info
 
 
 InputAction = dict[str, Any]
@@ -20,6 +21,7 @@ SessionStartHandler = Callable[[dict[str, Any], "ExtensionContext"], Any]
 ContextHandler = Callable[[dict[str, Any], "ExtensionContext"], Any]
 ToolCallHandler = Callable[[dict[str, Any], "ExtensionContext"], Any]
 ToolResultHandler = Callable[[dict[str, Any], "ExtensionContext"], Any]
+ResourcesDiscoverHandler = Callable[[dict[str, Any], "ExtensionContext"], Any]
 
 
 @dataclass(frozen=True)
@@ -28,6 +30,7 @@ class ExtensionCommand:
     description: str | None
     handler: CommandHandler
     extension_path: str
+    source_info: SourceInfo | None = None
 
 
 @dataclass(frozen=True)
@@ -37,6 +40,7 @@ class ResolvedExtensionCommand:
     description: str | None
     handler: CommandHandler
     extension_path: str
+    source_info: SourceInfo | None = None
 
 
 class ExtensionContext:
@@ -60,8 +64,13 @@ class ExtensionCommandContext(ExtensionContext):
 class ExtensionAPI:
     """Registration API exposed to Python extension modules."""
 
-    def __init__(self, extension_path: str) -> None:
+    def __init__(
+        self,
+        extension_path: str,
+        source_info: SourceInfo | None = None,
+    ) -> None:
         self._extension_path = extension_path
+        self._source_info = source_info
         self.commands: list[ExtensionCommand] = []
         self.tools: list[AgentTool] = []
         self.input_handlers: list[InputHandler] = []
@@ -70,6 +79,7 @@ class ExtensionAPI:
         self.context_handlers: list[ContextHandler] = []
         self.tool_call_handlers: list[ToolCallHandler] = []
         self.tool_result_handlers: list[ToolResultHandler] = []
+        self.resources_discover_handlers: list[ResourcesDiscoverHandler] = []
 
     def register_command(
         self,
@@ -84,6 +94,7 @@ class ExtensionAPI:
                 description=description,
                 handler=handler,
                 extension_path=self._extension_path,
+                source_info=self._source_info,
             )
         )
 
@@ -109,6 +120,9 @@ class ExtensionAPI:
         if event == "tool_result":
             self.tool_result_handlers.append(handler)
             return
+        if event == "resources_discover":
+            self.resources_discover_handlers.append(handler)
+            return
         raise ValueError(f"Unsupported extension event: {event}")
 
 
@@ -122,6 +136,7 @@ class ExtensionLoadResult:
     context_handlers: list[ContextHandler]
     tool_call_handlers: list[ToolCallHandler]
     tool_result_handlers: list[ToolResultHandler]
+    resources_discover_handlers: list[ResourcesDiscoverHandler]
     errors: list[str]
 
 
@@ -138,6 +153,7 @@ class ExtensionRuntime:
         self.context_handlers = load_result.context_handlers
         self.tool_call_handlers = load_result.tool_call_handlers
         self.tool_result_handlers = load_result.tool_result_handlers
+        self.resources_discover_handlers = load_result.resources_discover_handlers
         self.errors = load_result.errors
 
     def _resolve_commands(self) -> list[ResolvedExtensionCommand]:
@@ -161,6 +177,7 @@ class ExtensionRuntime:
                     description=command.description,
                     handler=command.handler,
                     extension_path=command.extension_path,
+                    source_info=command.source_info,
                 )
             )
         return resolved
@@ -184,15 +201,40 @@ class ExtensionRuntime:
             await out
         return True
 
-    async def emit_session_start(self) -> None:
+    async def emit_session_start(self, *, reason: str = "startup") -> None:
         if not self.session_start_handlers:
             return
         ctx = ExtensionContext(cwd=self.cwd)
-        event = {"type": "session_start", "reason": "startup"}
+        event = {"type": "session_start", "reason": reason}
         for handler in self.session_start_handlers:
             out = handler(event, ctx)
             if isinstance(out, Awaitable):
                 await out
+
+    async def emit_resources_discover(
+        self,
+        *,
+        reason: str,
+    ) -> dict[str, list[str]]:
+        if not self.resources_discover_handlers:
+            return {"skillPaths": [], "promptPaths": [], "themePaths": []}
+        ctx = ExtensionContext(cwd=self.cwd)
+        aggregated = {"skillPaths": [], "promptPaths": [], "themePaths": []}
+        for handler in self.resources_discover_handlers:
+            out = handler(
+                {"type": "resources_discover", "cwd": str(self.cwd), "reason": reason},
+                ctx,
+            )
+            result = await out if isinstance(out, Awaitable) else out
+            if not isinstance(result, dict):
+                continue
+            for key in ("skillPaths", "promptPaths", "themePaths"):
+                value = result.get(key)
+                if isinstance(value, list):
+                    for item in value:
+                        if isinstance(item, str) and item.strip():
+                            aggregated[key].append(item.strip())
+        return aggregated
 
     async def emit_input(self, text: str, source: str) -> InputAction:
         current_text = text
@@ -385,7 +427,12 @@ def discover_extension_paths(cwd: Path, agent_dir: Path, explicit_paths: list[st
     return found
 
 
-def load_extensions(cwd: Path, extension_paths: list[Path]) -> ExtensionLoadResult:
+def load_extensions(
+    cwd: Path,
+    extension_paths: list[Path],
+    *,
+    agent_dir: Path,
+) -> ExtensionLoadResult:
     """Load Python extension modules."""
 
     commands: list[ExtensionCommand] = []
@@ -396,6 +443,7 @@ def load_extensions(cwd: Path, extension_paths: list[Path]) -> ExtensionLoadResu
     context_handlers: list[ContextHandler] = []
     tool_call_handlers: list[ToolCallHandler] = []
     tool_result_handlers: list[ToolResultHandler] = []
+    resources_discover_handlers: list[ResourcesDiscoverHandler] = []
     errors: list[str] = []
 
     for index, ext_path in enumerate(extension_paths):
@@ -416,7 +464,13 @@ def load_extensions(cwd: Path, extension_paths: list[Path]) -> ExtensionLoadResu
                 f"Extension must export register(api) or setup(api): {ext_path}",
             )
             continue
-        api = ExtensionAPI(str(ext_path))
+        source_info = classify_source_info(
+            path=ext_path,
+            cwd=cwd,
+            agent_dir=agent_dir,
+            fallback_base_dir=ext_path.parent,
+        )
+        api = ExtensionAPI(str(ext_path), source_info=source_info)
         try:
             maybe = factory(api)
             if isinstance(maybe, Awaitable):
@@ -435,6 +489,7 @@ def load_extensions(cwd: Path, extension_paths: list[Path]) -> ExtensionLoadResu
         context_handlers.extend(api.context_handlers)
         tool_call_handlers.extend(api.tool_call_handlers)
         tool_result_handlers.extend(api.tool_result_handlers)
+        resources_discover_handlers.extend(api.resources_discover_handlers)
 
     return ExtensionLoadResult(
         command_overrides=commands,
@@ -445,5 +500,6 @@ def load_extensions(cwd: Path, extension_paths: list[Path]) -> ExtensionLoadResu
         context_handlers=context_handlers,
         tool_call_handlers=tool_call_handlers,
         tool_result_handlers=tool_result_handlers,
+        resources_discover_handlers=resources_discover_handlers,
         errors=errors,
     )

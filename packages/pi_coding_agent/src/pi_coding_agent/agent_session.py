@@ -157,6 +157,9 @@ class AgentSession:
         request_headers: dict[str, str] | None,
         settings: Settings,
         resources: ResourceManager | None = None,
+        resource_reloader: (
+            Callable[[str], Awaitable[tuple[ResourceManager, str]]] | None
+        ) = None,
         provider_override: str | None = None,
     ) -> None:
         self._agent = agent
@@ -170,6 +173,7 @@ class AgentSession:
         self._provider_override = provider_override
         self._settings = settings
         self._resources = resources
+        self._resource_reloader = resource_reloader
         self._auto_compaction_enabled = settings.compaction.enabled
         self._reserve_tokens = settings.compaction.reserve_tokens
         self._keep_recent_tokens = settings.compaction.keep_recent_tokens
@@ -771,15 +775,48 @@ class AgentSession:
     def get_commands(self) -> list[dict[str, Any]]:
         if self._resources is None:
             return []
-        return [
-            {
+        payload: list[dict[str, Any]] = []
+        for item in self._resources.list_commands():
+            entry: dict[str, Any] = {
                 "name": item.name,
                 "source": item.source,
                 "description": item.description,
                 "path": item.path,
             }
-            for item in self._resources.list_commands()
+            if item.source_info is not None:
+                entry["sourceInfo"] = item.source_info.to_dict()
+            payload.append(entry)
+        return payload
+
+    def get_resource_diagnostics(self) -> list[dict[str, Any]]:
+        if self._resources is None:
+            return []
+        return self._resources.get_diagnostics()
+
+    async def reload_resources(self) -> dict[str, Any]:
+        """Reload extensions/skills/prompts and update agent runtime in-place."""
+
+        if self.is_streaming:
+            msg = "Cannot reload resources while agent is streaming"
+            raise RuntimeError(msg)
+        if self._resource_reloader is None:
+            msg = "Resource reloader is not configured for this session"
+            raise RuntimeError(msg)
+        new_resources, new_system_prompt = await self._resource_reloader("reload")
+        self._resources = new_resources
+        self._agent._system_prompt = new_system_prompt
+        current_tools = [tool.name for tool in self._agent._tools]
+        builtin_names = [
+            name
+            for name in current_tools
+            if name in {"read", "edit", "write", "grep", "find", "ls", "bash"}
         ]
+        rebuilt_tools = create_tools_for_names(str(self.cwd), builtin_names)
+        self._agent._tools = [*rebuilt_tools, *new_resources.extension_runtime.tools]
+        return {
+            "commands": self.get_commands(),
+            "diagnostics": self.get_resource_diagnostics(),
+        }
 
     async def new_session(self, *, cwd: Path | None = None) -> None:
         target = cwd or self.cwd
@@ -808,6 +845,9 @@ class AgentSession:
         request_headers: dict[str, str] | None,
         settings: Settings | None = None,
         resources: ResourceManager | None = None,
+        resource_reloader: (
+            Callable[[str], Awaitable[tuple[ResourceManager, str]]] | None
+        ) = None,
         provider_override: str | None = None,
     ) -> AgentSession:
         resolved_settings = settings or load_settings(cwd)
@@ -879,4 +919,5 @@ class AgentSession:
             provider_override=provider_override,
             settings=resolved_settings,
             resources=resources,
+            resource_reloader=resource_reloader,
         )

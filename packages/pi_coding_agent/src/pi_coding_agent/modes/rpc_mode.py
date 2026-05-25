@@ -222,6 +222,34 @@ async def run_rpc_mode(options: RpcModeOptions) -> int:
             )
             return
 
+        if cmd_type == "get_resource_diagnostics":
+            _write_stdout(
+                _success(
+                    request_id,
+                    "get_resource_diagnostics",
+                    {"diagnostics": session.get_resource_diagnostics()},
+                )
+            )
+            return
+
+        if cmd_type == "reload":
+            if session.is_streaming:
+                _write_stdout(
+                    _error(
+                        request_id,
+                        "reload",
+                        "Cannot reload while the agent is streaming",
+                    )
+                )
+                return
+            try:
+                data = await session.reload_resources()
+            except RuntimeError as exc:
+                _write_stdout(_error(request_id, "reload", str(exc)))
+                return
+            _write_stdout(_success(request_id, "reload", data))
+            return
+
         if cmd_type == "get_available_models":
             models = [
                 {

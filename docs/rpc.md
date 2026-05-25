@@ -25,7 +25,9 @@ For real models, omit `--provider faux` and configure `~/.pi/agent/models.json` 
 | `get_state` | Model, thinking, streaming, session paths |
 | `get_messages` | Full message list |
 | `get_available_models` | Registry models |
-| `get_commands` | Extension/prompt/skill slash commands currently available |
+| `get_commands` | Extension/prompt/skill slash commands currently available (`sourceInfo` included) |
+| `get_resource_diagnostics` | Resource load/collision diagnostics for skills/prompts/extensions |
+| `reload` | Reload extensions/skills/prompts and return updated commands/diagnostics |
 | `set_model` | `{"type":"set_model","provider":"...","modelId":"..."}` |
 | `set_thinking_level` | `{"type":"set_thinking_level","level":"high"}` |
 | `new_session` | Fresh session file |

@@ -53,6 +53,8 @@ asyncio.run(main())
 | `model` | `provider/model` pattern or `Model` instance |
 | `tools` | Tool name allowlist (default: `read`, `bash`) |
 | `system_prompt` | System prompt override |
+| `no_skills` / `no_prompt_templates` / `no_extensions` | Disable resource discovery |
+| `skill_paths` / `prompt_paths` / `extension_paths` | Extra resource paths |
 | `api_key` | API key override |
 | `thinking_level` | `off` / `low` / `medium` / `high` / … |
 | `in_memory` | No JSONL session file |
@@ -71,6 +73,8 @@ Returns `CreateAgentSessionResult(session=AgentSession, warning=...)`.
 - `session.set_thinking_level(level)`
 - `session.messages`, `session.model`, `session.is_streaming`
 - `session.session_file`, `session.session_id`
+- `session.get_commands()` / `session.get_resource_diagnostics()`
+- `await session.reload_resources()`
 
 ## Exports
 

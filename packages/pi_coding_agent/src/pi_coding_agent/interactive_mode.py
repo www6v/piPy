@@ -44,6 +44,7 @@ def _print_help() -> None:
                 "  /exit, /quit     Exit",
                 "  /help            Show this help",
                 "  /compact [instr] Compact session (optional hints)",
+                "  /reload          Reload extensions/skills/prompts",
                 "  /model [pattern] Show or switch model",
                 "  /tools           List enabled tools",
                 "  /session         Show session file path",
@@ -207,6 +208,20 @@ async def run_interactive_mode(options: InteractiveOptions) -> int:
             continue
         if line == "/session":
             print(session.session_file or "(in-memory)")
+            continue
+        if line == "/reload":
+            if session.is_streaming:
+                print("Cannot reload while streaming.", file=sys.stderr)
+                continue
+            try:
+                result = await session.reload_resources()
+            except RuntimeError as exc:
+                print(f"Reload failed: {exc}", file=sys.stderr)
+                continue
+            print(
+                f"Reloaded resources: {len(result['commands'])} commands, "
+                f"{len(result['diagnostics'])} diagnostics"
+            )
             continue
         if line.startswith("/model"):
             parts = line.split(maxsplit=1)

@@ -7,7 +7,9 @@ from pathlib import Path
 
 from pi_ai.config_paths import CONFIG_DIR_NAME
 
+from pi_coding_agent.resources.diagnostics import ResourceDiagnostic
 from pi_coding_agent.resources.frontmatter import parse_frontmatter
+from pi_coding_agent.resources.source_info import SourceInfo, classify_source_info
 
 
 @dataclass(frozen=True)
@@ -19,6 +21,13 @@ class PromptTemplate:
     content: str
     file_path: str
     argument_hint: str | None = None
+    source_info: SourceInfo | None = None
+
+
+@dataclass(frozen=True)
+class LoadPromptTemplatesResult:
+    prompts: list[PromptTemplate]
+    diagnostics: list[ResourceDiagnostic]
 
 
 def parse_command_args(args_string: str) -> list[str]:
@@ -101,7 +110,13 @@ def expand_prompt_template(text: str, templates: list[PromptTemplate]) -> str:
     return substitute_args(template.content, parsed_args)
 
 
-def _load_template_file(path: Path) -> PromptTemplate | None:
+def _load_template_file(
+    path: Path,
+    *,
+    cwd: Path,
+    agent_dir: Path,
+    fallback_base_dir: Path | None = None,
+) -> PromptTemplate | None:
     try:
         raw = path.read_text(encoding="utf-8")
     except OSError:
@@ -121,16 +136,33 @@ def _load_template_file(path: Path) -> PromptTemplate | None:
         content=body,
         file_path=str(path),
         argument_hint=parsed.frontmatter.get("argument-hint"),
+        source_info=classify_source_info(
+            path=path,
+            cwd=cwd,
+            agent_dir=agent_dir,
+            fallback_base_dir=fallback_base_dir,
+        ),
     )
 
 
-def _load_templates_from_dir(dir_path: Path) -> list[PromptTemplate]:
+def _load_templates_from_dir(
+    dir_path: Path,
+    *,
+    cwd: Path,
+    agent_dir: Path,
+    fallback_base_dir: Path | None = None,
+) -> list[PromptTemplate]:
     if not dir_path.is_dir():
         return []
     loaded: list[PromptTemplate] = []
     for child in sorted(dir_path.iterdir()):
         if child.is_file() and child.suffix.lower() == ".md":
-            tpl = _load_template_file(child)
+            tpl = _load_template_file(
+                child,
+                cwd=cwd,
+                agent_dir=agent_dir,
+                fallback_base_dir=fallback_base_dir,
+            )
             if tpl is not None:
                 loaded.append(tpl)
     return loaded
@@ -142,29 +174,68 @@ def load_prompt_templates(
     agent_dir: Path,
     prompt_paths: list[str],
     include_defaults: bool,
-) -> list[PromptTemplate]:
+) -> LoadPromptTemplatesResult:
     """Load prompt templates from defaults plus explicit paths."""
 
     templates: list[PromptTemplate] = []
+    diagnostics: list[ResourceDiagnostic] = []
     if include_defaults:
-        templates.extend(_load_templates_from_dir(agent_dir / "prompts"))
-        templates.extend(_load_templates_from_dir(cwd / CONFIG_DIR_NAME / "prompts"))
+        templates.extend(
+            _load_templates_from_dir(
+                agent_dir / "prompts",
+                cwd=cwd,
+                agent_dir=agent_dir,
+            ),
+        )
+        templates.extend(
+            _load_templates_from_dir(
+                cwd / CONFIG_DIR_NAME / "prompts",
+                cwd=cwd,
+                agent_dir=agent_dir,
+            ),
+        )
     for raw in prompt_paths:
         path = Path(raw).expanduser()
         if not path.is_absolute():
             path = (cwd / path).resolve()
         if path.is_dir():
-            templates.extend(_load_templates_from_dir(path))
+            templates.extend(
+                _load_templates_from_dir(
+                    path,
+                    cwd=cwd,
+                    agent_dir=agent_dir,
+                    fallback_base_dir=path,
+                ),
+            )
             continue
         if path.is_file() and path.suffix.lower() == ".md":
-            tpl = _load_template_file(path)
+            tpl = _load_template_file(
+                path,
+                cwd=cwd,
+                agent_dir=agent_dir,
+                fallback_base_dir=path.parent,
+            )
             if tpl is not None:
                 templates.append(tpl)
     deduped: list[PromptTemplate] = []
-    seen: set[str] = set()
+    seen: dict[str, PromptTemplate] = {}
     for template in templates:
         if template.name in seen:
+            winner = seen[template.name]
+            diagnostics.append(
+                ResourceDiagnostic(
+                    type="collision",
+                    message=f'name "/{template.name}" collision',
+                    path=template.file_path,
+                    collision={
+                        "resourceType": "prompt",
+                        "name": template.name,
+                        "winnerPath": winner.file_path,
+                        "loserPath": template.file_path,
+                    },
+                ),
+            )
             continue
-        seen.add(template.name)
+        seen[template.name] = template
         deduped.append(template)
-    return deduped
+    return LoadPromptTemplatesResult(prompts=deduped, diagnostics=diagnostics)

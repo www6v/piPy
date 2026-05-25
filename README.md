@@ -2,6 +2,71 @@
 
 Python port of the [pi](https://github.com/earendil-works/pi-mono) agent harness (reference: `../pi`).
 
+## Resources quick links
+
+- [Skills guide](docs/skills.md)
+- [Prompt templates guide](docs/prompt-templates.md)
+- [Extensions guide](docs/extensions.md)
+- [RPC protocol](docs/rpc.md)
+- [SDK guide](docs/sdk.md)
+
+## Resources quickstart (copy/paste)
+
+```bash
+# 1) Create local resources
+mkdir -p .pi/{skills/demo-skill,prompts,extensions}
+
+cat > .pi/skills/demo-skill/SKILL.md <<'EOF'
+---
+name: demo-skill
+description: Demo skill that asks for concise output.
+---
+Always answer in 3 bullets max.
+EOF
+
+cat > .pi/prompts/review.md <<'EOF'
+---
+description: Quick review template
+argument-hint: "<path>"
+---
+Review $1 for bugs and missing tests.
+EOF
+
+cat > .pi/extensions/demo.py <<'EOF'
+def register(pi):
+    def on_discover(event, ctx):
+        return {"promptPaths": [f"{ctx.cwd}/.pi/prompts"]}
+
+    def on_tool_call(event, ctx):
+        if event.get("toolName") == "bash":
+            cmd = event.get("input", {}).get("command", "")
+            if isinstance(cmd, str) and "rm -rf" in cmd:
+                return {"block": True, "reason": "blocked by demo extension"}
+        return None
+
+    pi.on("resources_discover", on_discover)
+    pi.on("tool_call", on_tool_call)
+EOF
+```
+
+```bash
+# 2) Run interactive mode and try expansions
+./pipy-test.sh --provider faux --model faux/test
+# In REPL:
+# /review README.md
+# /skill:demo-skill tighten output
+# /reload
+```
+
+```bash
+# 3) Inspect resources via RPC
+pipy --mode rpc --no-session --provider faux --model faux/test
+# Send lines:
+# {"id":"1","type":"get_commands"}
+# {"id":"2","type":"get_resource_diagnostics"}
+# {"id":"3","type":"reload"}
+```
+
 ## Architecture
 
 | Package | Role |
@@ -151,6 +216,7 @@ pipy --mode rpc --no-session
 ```
 
 See [docs/rpc.md](docs/rpc.md). Python helper: `pi_coding_agent.rpc_client.RpcClient`.
+Resources docs: [skills](docs/skills.md), [prompt templates](docs/prompt-templates.md), [extensions](docs/extensions.md).
 
 Further work: extensions, fuller RPC parity — see pi docs.
 
@@ -176,6 +242,8 @@ Supported command expansion:
 - Prompt templates: `/template-name ...`
 - Skills: `/skill:skill-name ...` (controlled by `enableSkillCommands`)
 - Extensions: custom slash commands registered by Python extension modules
+
+Shipped example extension: `examples/extensions/demo_extension.py`
 
 ## Interactive mode
 

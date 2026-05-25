@@ -179,4 +179,91 @@ def test_rpc_get_commands_includes_prompt_template(tmp_path: Path) -> None:
         client.close()
     assert response["success"] is True
     commands = response["data"]["commands"]
-    assert any(item["name"] == "quick" and item["source"] == "prompt" for item in commands)
+    prompt_entry = next(
+        (item for item in commands if item["name"] == "quick" and item["source"] == "prompt"),
+        None,
+    )
+    assert prompt_entry is not None
+    assert isinstance(prompt_entry.get("sourceInfo"), dict)
+
+
+def test_rpc_get_resource_diagnostics_reports_prompt_collision(tmp_path: Path) -> None:
+    dir_a = tmp_path / "prompts-a"
+    dir_b = tmp_path / "prompts-b"
+    dir_a.mkdir(parents=True, exist_ok=True)
+    dir_b.mkdir(parents=True, exist_ok=True)
+    (dir_a / "dupe.md").write_text("---\ndescription: A\n---\nA\n", encoding="utf-8")
+    (dir_b / "dupe.md").write_text("---\ndescription: B\n---\nB\n", encoding="utf-8")
+    cli_cmd = [
+        sys.executable,
+        "-m",
+        "pi_coding_agent.cli",
+        "--mode",
+        "rpc",
+        "--no-session",
+        "--no-context-files",
+        "--prompt-template",
+        str(dir_a),
+        "--prompt-template",
+        str(dir_b),
+        "--provider",
+        "faux",
+        "--model",
+        "faux/rpc_diag",
+        "--tools",
+        "read",
+    ]
+    client = RpcClient(command=cli_cmd, cwd=tmp_path)
+    client.start()
+    try:
+        response, _events = client.request(
+            {"id": "gd1", "type": "get_resource_diagnostics"}
+        )
+    finally:
+        client.close()
+    assert response["success"] is True
+    diagnostics = response["data"]["diagnostics"]
+    collision = next((item for item in diagnostics if item.get("type") == "collision"), None)
+    assert collision is not None
+    assert collision["collision"]["resourceType"] == "prompt"
+
+
+def test_rpc_reload_refreshes_commands(tmp_path: Path) -> None:
+    ext_dir = tmp_path / ".pi" / "extensions"
+    ext_dir.mkdir(parents=True, exist_ok=True)
+    ext_file = ext_dir / "rpc_reload.py"
+    ext_file.write_text(
+        "def register(pi):\n"
+        "    pi.register_command('first', description='first', handler=lambda args, ctx: None)\n",
+        encoding="utf-8",
+    )
+    cli_cmd = [
+        sys.executable,
+        "-m",
+        "pi_coding_agent.cli",
+        "--mode",
+        "rpc",
+        "--no-session",
+        "--no-context-files",
+        "--provider",
+        "faux",
+        "--model",
+        "faux/rpc_reload",
+        "--tools",
+        "read",
+    ]
+    client = RpcClient(command=cli_cmd, cwd=tmp_path)
+    client.start()
+    try:
+        commands_before, _events = client.request({"id": "c-before", "type": "get_commands"})
+        assert any(item["name"] == "first" for item in commands_before["data"]["commands"])
+        ext_file.write_text(
+            "def register(pi):\n"
+            "    pi.register_command('second', description='second', handler=lambda args, ctx: None)\n",
+            encoding="utf-8",
+        )
+        reload_resp, _events = client.request({"id": "r1", "type": "reload"})
+        assert reload_resp["success"] is True
+        assert any(item["name"] == "second" for item in reload_resp["data"]["commands"])
+    finally:
+        client.close()

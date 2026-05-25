@@ -125,7 +125,17 @@ async def test_extension_command_and_get_commands(tmp_path: Path) -> None:
     assert session.thinking_level == "high"
     assert len(session.messages) == before_count
     commands = session.get_commands()
-    assert any(item["name"] == "set-high" and item["source"] == "extension" for item in commands)
+    matched = next(
+        (
+            item
+            for item in commands
+            if item["name"] == "set-high" and item["source"] == "extension"
+        ),
+        None,
+    )
+    assert matched is not None
+    assert isinstance(matched.get("sourceInfo"), dict)
+    assert matched["sourceInfo"]["scope"] in {"project", "user", "temporary"}
 
 
 @pytest.mark.asyncio
@@ -241,3 +251,79 @@ async def test_extension_tool_call_and_tool_result_hooks(tmp_path: Path) -> None
     tool_results = [msg for msg in session.messages if msg.role == "toolResult"]
     assert len(tool_results) == 1
     assert tool_results[0].content[0].text == "base-call-result"
+
+
+@pytest.mark.asyncio
+async def test_resources_discover_adds_prompt_paths(tmp_path: Path) -> None:
+    discovered_prompts = tmp_path / "discovered-prompts"
+    discovered_prompts.mkdir(parents=True, exist_ok=True)
+    (discovered_prompts / "extra.md").write_text(
+        "---\n"
+        "description: discovered\n"
+        "---\n"
+        "Discovered prompt.\n",
+        encoding="utf-8",
+    )
+    ext_dir = tmp_path / ".pi" / "extensions"
+    ext_dir.mkdir(parents=True, exist_ok=True)
+    (ext_dir / "discover.py").write_text(
+        "def register(pi):\n"
+        "    def _discover(event, ctx):\n"
+        "        del event\n"
+        "        return {'promptPaths': [f\"{ctx.cwd}/discovered-prompts\"]}\n"
+        "    pi.on('resources_discover', _discover)\n",
+        encoding="utf-8",
+    )
+    register_faux_provider(
+        models=[{"id": "resources-discover", "name": "resources-discover"}],
+        handler=lambda _ctx: faux_assistant_message([faux_text("ok")]),
+    )
+    set_faux_responses([faux_assistant_message([faux_text("ok")])])
+    result = await create_agent_session(
+        CreateAgentSessionOptions(
+            cwd=tmp_path,
+            model="faux/resources-discover",
+            provider="faux",
+            tools=[],
+            in_memory=True,
+        )
+    )
+    session = result.session
+    commands = session.get_commands()
+    assert any(item["name"] == "extra" and item["source"] == "prompt" for item in commands)
+
+
+@pytest.mark.asyncio
+async def test_reload_resources_refreshes_extension_commands(tmp_path: Path) -> None:
+    ext_dir = tmp_path / ".pi" / "extensions"
+    ext_dir.mkdir(parents=True, exist_ok=True)
+    ext_file = ext_dir / "live_reload.py"
+    ext_file.write_text(
+        "def register(pi):\n"
+        "    pi.register_command('alpha', description='alpha', handler=lambda args, ctx: None)\n",
+        encoding="utf-8",
+    )
+    register_faux_provider(
+        models=[{"id": "resources-reload", "name": "resources-reload"}],
+        handler=lambda _ctx: faux_assistant_message([faux_text("ok")]),
+    )
+    set_faux_responses([faux_assistant_message([faux_text("ok")])])
+    result = await create_agent_session(
+        CreateAgentSessionOptions(
+            cwd=tmp_path,
+            model="faux/resources-reload",
+            provider="faux",
+            tools=[],
+            in_memory=True,
+        )
+    )
+    session = result.session
+    assert any(item["name"] == "alpha" for item in session.get_commands())
+    ext_file.write_text(
+        "def register(pi):\n"
+        "    pi.register_command('beta', description='beta', handler=lambda args, ctx: None)\n",
+        encoding="utf-8",
+    )
+    reloaded = await session.reload_resources()
+    names = {item["name"] for item in reloaded["commands"]}
+    assert "beta" in names

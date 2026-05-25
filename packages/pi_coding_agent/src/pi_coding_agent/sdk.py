@@ -216,24 +216,32 @@ async def create_agent_session(
     skill_paths = [*settings.skills, *(opts.skill_paths or [])]
     prompt_paths = [*settings.prompts, *(opts.prompt_paths or [])]
     extension_paths = [*settings.extensions, *(opts.extension_paths or [])]
-    resources = create_resource_manager(
-        cwd=cwd,
-        agent_dir=get_agent_dir(),
-        skill_paths=skill_paths,
-        prompt_paths=prompt_paths,
-        extension_paths=extension_paths,
-        no_skills=opts.no_skills,
-        no_prompt_templates=opts.no_prompt_templates,
-        no_extensions=opts.no_extensions,
-        enable_skill_commands=settings.enable_skill_commands,
-    )
+    async def build_resources(reason: str) -> ResourceManager:
+        return await create_resource_manager(
+            cwd=cwd,
+            agent_dir=get_agent_dir(),
+            skill_paths=skill_paths,
+            prompt_paths=prompt_paths,
+            extension_paths=extension_paths,
+            no_skills=opts.no_skills,
+            no_prompt_templates=opts.no_prompt_templates,
+            no_extensions=opts.no_extensions,
+            enable_skill_commands=settings.enable_skill_commands,
+            reason=reason,
+        )
+
+    async def build_resource_bundle(reason: str) -> tuple[ResourceManager, str]:
+        resources = await build_resources(reason)
+        prompt = _resolve_system_prompt_for_session(
+            cwd=cwd,
+            tools=tools,
+            opts=opts,
+            resources=resources,
+        )
+        return resources, prompt
+
+    resources, resolved_system_prompt = await build_resource_bundle("startup")
     backend = _resolve_backend(cwd, opts)
-    resolved_system_prompt = _resolve_system_prompt_for_session(
-        cwd=cwd,
-        tools=tools,
-        opts=opts,
-        resources=resources,
-    )
     session = AgentSession.build(
         cwd=cwd,
         model=resolved_model,
@@ -247,6 +255,6 @@ async def create_agent_session(
         provider_override=opts.provider,
         settings=settings,
         resources=resources,
+        resource_reloader=build_resource_bundle,
     )
-    await resources.extension_runtime.emit_session_start()
     return CreateAgentSessionResult(session=session, warning=warning)
