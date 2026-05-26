@@ -11,3 +11,4 @@ build/
 htmlcov/
 .env
 .DS_Store
+example/.workspace/

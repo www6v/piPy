@@ -30,11 +30,12 @@ dev-dependencies = [
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
-testpaths = ["packages"]
+testpaths = ["packages", "example/tests"]
 pythonpath = [
     "packages/pi_ai/src",
     "packages/pi_agent/src",
     "packages/pi_coding_agent/src",
+    "example",
 ]
 
 [tool.ruff]
