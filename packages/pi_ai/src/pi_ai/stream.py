@@ -8,7 +8,9 @@ from dataclasses import dataclass
 from typing import Any
 
 from pi_ai.providers import faux as faux_provider
+from pi_ai.providers.amazon_bedrock import stream_amazon_bedrock
 from pi_ai.providers.anthropic import stream_anthropic
+from pi_ai.providers.azure_openai_responses import stream_azure_openai_responses
 from pi_ai.providers.google import stream_google
 from pi_ai.providers.openai import stream_openai
 from pi_ai.types import (
@@ -130,6 +132,30 @@ def stream_simple(
     if model.api == "google-generate-content":
         return AssistantMessageStream(
             _events=stream_google(
+                model,
+                ctx,
+                api_key=api_key,
+                request_headers=request_headers,
+                thinking_level=thinking_level,
+                signal=signal,
+                client=client,
+            )
+        )
+    if model.api == "azure-openai-responses":
+        return AssistantMessageStream(
+            _events=stream_azure_openai_responses(
+                model,
+                ctx,
+                api_key=api_key,
+                request_headers=request_headers,
+                thinking_level=thinking_level,
+                signal=signal,
+                client=client,
+            )
+        )
+    if model.api == "amazon-bedrock":
+        return AssistantMessageStream(
+            _events=stream_amazon_bedrock(
                 model,
                 ctx,
                 api_key=api_key,

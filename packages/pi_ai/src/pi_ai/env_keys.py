@@ -14,6 +14,10 @@ _API_KEY_ENV: dict[str, tuple[str, ...]] = {
     "mistral": ("MISTRAL_API_KEY",),
     "together": ("TOGETHER_API_KEY",),
     "dashscope": ("DASHSCOPE_API_KEY",),
+    "azure-openai-responses": ("AZURE_OPENAI_API_KEY",),
+    # Bedrock usually uses AWS credentials. Keep an explicit optional token name
+    # for parity with api-key based resolution paths.
+    "amazon-bedrock": ("AWS_BEDROCK_API_KEY",),
 }
 
 

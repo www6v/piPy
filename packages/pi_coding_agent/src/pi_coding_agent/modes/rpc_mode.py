@@ -10,6 +10,7 @@ from typing import Any
 
 from pi_ai.model_registry import get_registry
 
+from pi_coding_agent.auth.storage import AuthStorage, get_auth_storage
 from pi_coding_agent.modes.json_mode import stream_event_to_jsonable
 from pi_coding_agent.sdk import CreateAgentSessionOptions, create_agent_session
 
@@ -51,6 +52,36 @@ def _error(
         "success": False,
         "error": message,
     }
+
+
+def _handle_auth_rpc_command(
+    command: dict[str, Any],
+    request_id: str | None,
+    auth_storage: AuthStorage,
+) -> dict[str, Any] | None:
+    cmd_type = command.get("type")
+    if cmd_type == "login":
+        provider = command.get("provider")
+        key = command.get("key")
+        if not isinstance(provider, str) or not provider.strip():
+            return _error(request_id, "login", "provider is required")
+        if not isinstance(key, str) or not key.strip():
+            return _error(request_id, "login", "key is required")
+        try:
+            auth_storage.set_api_key(provider, key)
+        except ValueError as exc:
+            return _error(request_id, "login", str(exc))
+        return _success(request_id, "login")
+    if cmd_type == "logout":
+        provider = command.get("provider")
+        if not isinstance(provider, str) or not provider.strip():
+            return _error(request_id, "logout", "provider is required")
+        try:
+            removed = auth_storage.logout(provider)
+        except ValueError as exc:
+            return _error(request_id, "logout", str(exc))
+        return _success(request_id, "logout", {"removed": removed})
+    return None
 
 
 async def _read_stdin_lines() -> asyncio.Queue[str | None]:
@@ -125,12 +156,22 @@ async def run_rpc_mode(options: RpcModeOptions) -> int:
 
     queue = await _read_stdin_lines()
     prompt_lock = asyncio.Lock()
+    auth_storage = get_auth_storage()
 
     async def handle_command(command: dict[str, Any]) -> None:
         request_id = command.get("id")
         cmd_type = command.get("type")
         if not isinstance(cmd_type, str):
             _write_stdout(_error(request_id, "unknown", "Missing command type"))
+            return
+
+        auth_response = _handle_auth_rpc_command(
+            command,
+            request_id,
+            auth_storage,
+        )
+        if auth_response is not None:
+            _write_stdout(auth_response)
             return
 
         if cmd_type == "prompt":

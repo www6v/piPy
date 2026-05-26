@@ -22,7 +22,13 @@ def get_model(provider: str, model_id: str) -> Model:
     hint = ""
     if registry.load_error:
         hint = f" (models.json error: see registry.load_error)"
-    elif provider not in {"openai", "anthropic", "google"}:
+    elif provider not in {
+        "openai",
+        "anthropic",
+        "google",
+        "azure-openai-responses",
+        "amazon-bedrock",
+    }:
         hint = (
             f' Add provider "{provider}" in {registry.models_json_path} '
             "(see pi docs/models.md)."

@@ -43,6 +43,14 @@ class ModelRegistry:
     def get_all(self) -> list[Model]:
         return list(self._models)
 
+    def get_provider_ids(self) -> set[str]:
+        """Return providers currently available in registry."""
+        return {model.provider for model in self._models}
+
+    def get_builtin_provider_ids(self) -> set[str]:
+        """Return built-in provider ids shipped with pi-ai."""
+        return set(BUILTIN_PROVIDERS)
+
     def find(self, provider: str, model_id: str) -> Model | None:
         for model in self._models:
             if model.provider == provider and model.id == model_id:

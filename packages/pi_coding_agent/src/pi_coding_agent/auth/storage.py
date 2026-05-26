@@ -17,21 +17,55 @@ class AuthStorage:
         return self._path
 
     def get_api_key(self, provider: str) -> str | None:
-        if not self._path.is_file():
-            return None
-        try:
-            raw = json.loads(self._path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
-            return None
-        if not isinstance(raw, dict):
-            return None
-        entry = raw.get(provider)
+        entry = self._load_auth_map().get(provider)
         if not isinstance(entry, dict):
             return None
         if entry.get("type") != "api_key":
             return None
         key = entry.get("key")
         return str(key) if key else None
+
+    def set_api_key(self, provider: str, key: str) -> None:
+        normalized_provider = provider.strip()
+        normalized_key = key.strip()
+        if not normalized_provider:
+            raise ValueError("provider is required")
+        if not normalized_key:
+            raise ValueError("key is required")
+        raw = self._load_auth_map()
+        raw[normalized_provider] = {
+            "type": "api_key",
+            "key": normalized_key,
+        }
+        self._write_auth_map(raw)
+
+    def logout(self, provider: str) -> bool:
+        normalized_provider = provider.strip()
+        if not normalized_provider:
+            raise ValueError("provider is required")
+        raw = self._load_auth_map()
+        removed = raw.pop(normalized_provider, None) is not None
+        if removed:
+            self._write_auth_map(raw)
+        return removed
+
+    def _load_auth_map(self) -> dict[str, object]:
+        if not self._path.is_file():
+            return {}
+        try:
+            raw = json.loads(self._path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return {}
+        if not isinstance(raw, dict):
+            return {}
+        return raw
+
+    def _write_auth_map(self, payload: dict[str, object]) -> None:
+        self._path.parent.mkdir(parents=True, exist_ok=True)
+        self._path.write_text(
+            json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+        )
 
 
 _default_auth: AuthStorage | None = None

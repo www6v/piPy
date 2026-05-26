@@ -7,6 +7,8 @@ Python port of the [pi](https://github.com/earendil-works/pi-mono) agent harness
 - [Skills guide](docs/skills.md)
 - [Prompt templates guide](docs/prompt-templates.md)
 - [Extensions guide](docs/extensions.md)
+- [Providers guide](docs/providers.md)
+- [Sessions guide](docs/sessions.md)
 - [RPC protocol](docs/rpc.md)
 - [SDK guide](docs/sdk.md)
 
@@ -82,6 +84,27 @@ uv sync
 uv run pytest
 ./pipy-test.sh --help
 ```
+
+## Parity status (after Tasks 1-4)
+
+### Implemented now
+
+- Interactive auth commands: `/login <provider> <key>`, `/logout <provider>`
+- RPC auth commands: `{"type":"login","provider":"...","key":"..."}`, `{"type":"logout","provider":"..."}`
+- Session navigation commands: `/tree`, `/clone [entryId]`
+- Session utility commands: `/new`, `/name <name>`, `/resume`
+- Provider runtime support: `openai`, `anthropic`, `google`, `faux`
+
+### Placeholder-limited
+
+- `azure-openai-responses` and `amazon-bedrock` are registered for model discovery and parity tracking, but runtime adapters are explicit placeholders (they return a not-implemented stream error)
+- Interactive mode is terminal REPL only (no pi TUI/theme/keybindings)
+
+### Planned next
+
+- Full runtime support for placeholder providers (`azure-openai-responses`, `amazon-bedrock`)
+- Wider provider coverage beyond the current subset
+- TUI/theme/keybindings parity and additional UX commands such as sharing flows
 
 ## models.json (same as pi)
 
@@ -306,8 +329,7 @@ CLI：`--model`、`--thinking` 优先于 settings；模型 pattern 支持 `anthr
 ## Limits
 
 - 交互为终端 REPL，无 pi TUI / 主题 / 快捷键
-- OAuth `/login` 未实现（用 `auth.json` 或环境变量）
-- API：`openai-completions`、`anthropic-messages`
+- `azure-openai-responses`、`amazon-bedrock` 当前仅为占位 provider（已注册，运行时未实现）
 
 ## Environment
 

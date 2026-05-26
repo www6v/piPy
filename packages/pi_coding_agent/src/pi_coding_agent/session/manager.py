@@ -13,6 +13,12 @@ from pi_agent.types import AgentMessage
 
 from pi_ai.config_paths import get_sessions_dir
 from pi_coding_agent.session.serialize import message_from_dict, message_to_dict
+from pi_coding_agent.session.tree import (
+    SessionTree,
+    build_session_tree,
+    clone_branch_entries,
+    infer_active_leaf_id,
+)
 from pi_coding_agent.session.types import CompactionResult
 
 CURRENT_SESSION_VERSION = 3
@@ -155,12 +161,7 @@ def _append_message_row(
 
 def _infer_leaf_id(entries: list[dict]) -> str | None:
     """Pick the persisted leaf id using the chronologically last body entry."""
-    body = _session_body(entries)
-    for row in reversed(body):
-        row_id = row.get("id")
-        if isinstance(row_id, str) and row_id:
-            return row_id
-    return None
+    return infer_active_leaf_id(entries)
 
 
 class SessionManager:
@@ -241,14 +242,23 @@ class SessionManager:
         cls,
         source_path: str | Path,
         cwd: str | Path,
+        leaf_id: str | None = None,
     ) -> SessionManager:
         source = Path(source_path).expanduser().resolve()
         if not source.is_file():
             msg = f"Session not found: {source}"
             raise FileNotFoundError(msg)
         target = cls.create(cwd)
-        source_lines = source.read_text(encoding="utf-8").splitlines()
-        payload = source_lines[1:]
+        source_entries = cls(source).load_entries()
+        if leaf_id is None:
+            payload = [
+                json.dumps(item, ensure_ascii=False)
+                for item in source_entries
+                if item.get("type") != "session"
+            ]
+        else:
+            payload_entries = clone_branch_entries(source_entries, leaf_id=leaf_id)
+            payload = [json.dumps(item, ensure_ascii=False) for item in payload_entries]
         if payload:
             with target.path.open("a", encoding="utf-8") as handle:
                 for line in payload:
@@ -275,6 +285,9 @@ class SessionManager:
 
     def load_messages(self) -> list[AgentMessage]:
         return build_messages_from_entries(self.load_entries())
+
+    def load_tree(self) -> SessionTree:
+        return build_session_tree(self.load_entries())
 
     def append_messages(self, new_messages: list[AgentMessage]) -> None:
         if not new_messages:
