@@ -16,9 +16,9 @@ build-backend = "hatchling.build"
 [tool.hatch.build.targets.wheel]
 packages = ["src/my_app"]
 
-# Editable installs against the piPy monorepo (default for this template).
-# When you copy this project elsewhere, replace with git or PyPI — see README.
+# Standalone app: piPy SDK from Git (subdirectory installs).
+# Pin with rev = tag or commit SHA; switch url if you fork piPy.
 [tool.uv.sources]
-pi-coding-agent = { path = "../../packages/pi_coding_agent", editable = true }
-pi-agent = { path = "../../packages/pi_agent", editable = true }
-pi-ai = { path = "../../packages/pi_ai", editable = true }
+pi-coding-agent = { git = "https://gitee.com/www6v6v/piPy.git", subdirectory = "packages/pi_coding_agent", rev = "master" }
+pi-agent = { git = "https://gitee.com/www6v6v/piPy.git", subdirectory = "packages/pi_agent", rev = "master" }
+pi-ai = { git = "https://gitee.com/www6v6v/piPy.git", subdirectory = "packages/pi_ai", rev = "master" }

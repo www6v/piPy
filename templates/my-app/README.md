@@ -1,20 +1,21 @@
 # my-app — pi-coding-agent SDK template
 
-Minimal standalone app that depends on **pi-coding-agent** from the piPy
-monorepo. Use it as a starting point for your own product or automation.
+Minimal standalone app that depends on **pi-coding-agent** from the
+[piPy](https://gitee.com/www6v6v/piPy) Git repository. Copy this folder to
+your own repo or use it as-is; no monorepo path required.
 
 ## Layout
 
 ```
 my-app/
-├── pyproject.toml      # depends on pi-coding-agent (path → monorepo)
+├── pyproject.toml      # pi-coding-agent via Git subdirectory
 ├── src/my_app/
 │   └── main.py         # create_agent_session + one prompt
 ├── example/            # runnable SDK examples (slide deck, find-skills)
 └── workspace/          # agent cwd (AGENTS.md, future .pi/*)
 ```
 
-## Quick start (inside piPy repo)
+## Quick start
 
 From this directory:
 
@@ -28,7 +29,7 @@ Default model is **faux/demo** (no API key). For a real provider:
 
 ```bash
 export PIPY_MODEL=anthropic/claude-sonnet-4-5
-# ensure ~/.pi/agent/auth.json or env API keys — see piPy docs/providers.md
+# ensure ~/.pi/agent/auth.json or env API keys
 uv run my-app "Summarize AGENTS.md in one sentence."
 ```
 
@@ -38,35 +39,28 @@ Or:
 uv run my-app --model openai/gpt-4o "Hello"
 ```
 
-## Copy outside the monorepo
+## SDK source (Git)
 
-1. Copy `templates/my-app/` to your own git repo.
-2. Replace `[tool.uv.sources]` in `pyproject.toml` with one of:
+`pyproject.toml` pulls three workspace packages from one repo:
 
-**PyPI (after piPy packages are published):**
+| Package | Subdirectory |
+|---------|----------------|
+| `pi-coding-agent` | `packages/pi_coding_agent` |
+| `pi-agent` | `packages/pi_agent` |
+| `pi-ai` | `packages/pi_ai` |
 
-```toml
-dependencies = ["pi-coding-agent>=0.1.0"]
-# remove [tool.uv.sources] pi-* path entries
-```
+Pin a release by setting `rev` on each `[tool.uv.sources]` entry, e.g.
+`rev = "v0.1.0"` or a commit SHA. After changing `rev` or `git` url, run
+`uv lock` then `uv sync`.
 
-**Git:**
+**PyPI (when published):** remove the `[tool.uv.sources]` block and use
+`dependencies = ["pi-coding-agent>=0.1.0"]` only.
 
-```toml
-[tool.uv.sources]
-pi-coding-agent = {
-    git = "https://github.com/YOUR_ORG/piPy.git",
-    subdirectory = "packages/pi_coding_agent",
-}
-```
+**Develop against a local piPy clone:** temporarily replace Git entries with
+path + editable, or use `uv pip install -e /path/to/piPy/packages/pi_coding_agent`.
 
-3. Run `uv sync` in the new project.
-4. Extend `src/my_app/main.py` — add `skill_paths`, `extension_paths`, session
-   files, or a web/RPC layer. See [docs/sdk.md](../../docs/sdk.md) and
-   [example/](example/).
+## Extend
 
-## Related docs
-
-- [SDK guide](../../docs/sdk.md)
-- [Providers & auth](../../docs/providers.md)
-- [Runnable examples](example/README.md)
+- Edit `src/my_app/main.py` — `skill_paths`, `extension_paths`, sessions, etc.
+- Examples: [example/](example/)
+- Upstream SDK docs: piPy `docs/sdk.md` and `docs/providers.md` in the piPy repo.
