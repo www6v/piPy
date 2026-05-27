@@ -1,0 +1,24 @@
+[project]
+name = "my-app"
+version = "0.1.0"
+description = "Minimal pi-coding-agent SDK application template"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = ["pi-coding-agent"]
+
+[project.scripts]
+my-app = "my_app.main:cli_main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/my_app"]
+
+# Editable installs against the piPy monorepo (default for this template).
+# When you copy this project elsewhere, replace with git or PyPI — see README.
+[tool.uv.sources]
+pi-coding-agent = { path = "../../packages/pi_coding_agent", editable = true }
+pi-agent = { path = "../../packages/pi_agent", editable = true }
+pi-ai = { path = "../../packages/pi_ai", editable = true }

@@ -11,4 +11,4 @@ build/
 htmlcov/
 .env
 .DS_Store
-example/.workspace/
+templates/my-app/example/.workspace/

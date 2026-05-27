@@ -11,6 +11,7 @@ Python port of the [pi](https://github.com/earendil-works/pi-mono) agent harness
 - [Sessions guide](docs/sessions.md)
 - [RPC protocol](docs/rpc.md)
 - [SDK guide](docs/sdk.md)
+- [App template (`templates/my-app`)](templates/my-app/README.md)
 
 ## Resources quickstart (copy/paste)
 

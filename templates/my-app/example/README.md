@@ -42,13 +42,13 @@ separate outer scripts or direct provider HTTP calls from the example code.
 
 ```bash
 # from repo root — outline only (default)
-uv run python example/baoyu-slide-deck.py
+uv run python templates/my-app/example/baoyu-slide-deck.py
 
-uv run python example/baoyu-slide-deck.py --content ./my-article.md --workspace /tmp/slide-run
-uv run python example/baoyu-slide-deck.py --full --slides 3   # also loads baoyu-image-gen
-uv run python example/baoyu-slide-deck.py --force-analysis
+uv run python templates/my-app/example/baoyu-slide-deck.py --content ./my-article.md --workspace /tmp/slide-run
+uv run python templates/my-app/example/baoyu-slide-deck.py --full --slides 3   # also loads baoyu-image-gen
+uv run python templates/my-app/example/baoyu-slide-deck.py --force-analysis
 
-PIPY_MODEL=anthropic/claude-sonnet-4-5 uv run python example/baoyu-slide-deck.py
+PIPY_MODEL=anthropic/claude-sonnet-4-5 uv run python templates/my-app/example/baoyu-slide-deck.py
 ```
 
 **Full pipeline output** (under workspace, topic slug may differ from bootstrap):
@@ -64,7 +64,7 @@ Post-run: exits non-zero if `analysis.md` is missing; outline-only without
 `outline.md`; or `--full` without `prompts/` and `NN-slide-*.png` files.
 
 ```bash
-pytest example/tests -q
+pytest templates/my-app/example/tests -q
 ```
 
 ## find-skills.py
@@ -72,8 +72,8 @@ pytest example/tests -q
 Search the open agent skills ecosystem using the `find-skills` skill:
 
 ```bash
-python example/find-skills.py
-python example/find-skills.py "react performance"
+python templates/my-app/example/find-skills.py
+python templates/my-app/example/find-skills.py "react performance"
 ```
 
 Install the skill if missing:

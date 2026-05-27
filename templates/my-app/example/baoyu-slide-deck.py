@@ -43,7 +43,10 @@ def _parse_args() -> argparse.Namespace:
         "--workspace",
         type=Path,
         default=DEFAULT_WORKSPACE,
-        help="agent cwd (default: example/.workspace/slide-deck-demo)",
+        help=(
+            "agent cwd (default: "
+            "templates/my-app/example/.workspace/slide-deck-demo)"
+        ),
     )
     parser.add_argument(
         "--content",

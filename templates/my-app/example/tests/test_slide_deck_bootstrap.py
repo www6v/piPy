@@ -1,4 +1,4 @@
-"""Tests for example/slide_deck_bootstrap.py."""
+"""Tests for templates/my-app/example/slide_deck_bootstrap.py."""
 
 from __future__ import annotations
 
