@@ -18,6 +18,17 @@ language: zh
 review: false
 """
 
+IMAGE_GEN_EXTEND_MD = """\
+---
+version: 1
+default_provider: google
+default_quality: 2k
+default_aspect_ratio: "16:9"
+---
+"""
+
+SLIDE_IMAGE_NAME_RE = re.compile(r"^\d{2}-slide-.+\.png$", re.IGNORECASE)
+
 STYLE_SIGNAL_RULES: tuple[tuple[str, str], ...] = (
     ("tutorial|learn|education|guide|beginner", "sketch-notes"),
     ("classroom|teaching|school|chalkboard", "chalkboard"),
@@ -95,6 +106,76 @@ def derive_topic_slug(content: str) -> str:
                 return _slugify_title(title)
         return _slugify_title(stripped)
     return "slide-deck-topic"
+
+
+def list_topic_dirs(workspace: Path) -> list[Path]:
+    """Topic dirs under slide-deck/, newest activity first."""
+    deck_root = workspace / "slide-deck"
+    if not deck_root.is_dir():
+        return []
+    dirs = [child for child in deck_root.iterdir() if child.is_dir()]
+    return sorted(
+        dirs,
+        key=lambda path: path.stat().st_mtime,
+        reverse=True,
+    )
+
+
+def _topic_dirs_with_artifact(
+    workspace: Path,
+    artifact: str,
+) -> list[Path]:
+    return [
+        topic_dir
+        for topic_dir in list_topic_dirs(workspace)
+        if (topic_dir / artifact).is_file()
+    ]
+
+
+def resolve_topic_dir(
+    workspace: Path,
+    bootstrap: WorkspaceBootstrap,
+    *,
+    prefer_artifact: str | None = None,
+    prefer_artifacts: tuple[str, ...] | None = None,
+) -> Path:
+    """Return topic dir where deck artifacts actually live.
+
+    The agent may choose a slug that differs from ``derive_topic_slug()``.
+    When ``prefer_artifact`` / ``prefer_artifacts`` is set, prefer the newest
+    topic directory that contains that file (first match wins).
+    """
+    artifacts: tuple[str, ...] = ()
+    if prefer_artifacts is not None:
+        artifacts = prefer_artifacts
+    elif prefer_artifact is not None:
+        artifacts = (prefer_artifact,)
+    expected = bootstrap.topic_dir
+    for artifact in artifacts:
+        if (expected / artifact).is_file():
+            return expected
+        matches = _topic_dirs_with_artifact(workspace, artifact)
+        if matches:
+            return matches[0]
+    return expected
+
+
+def list_slide_images(topic_dir: Path) -> list[Path]:
+    """Slide PNGs in a topic dir (``01-slide-cover.png``, etc.)."""
+    if not topic_dir.is_dir():
+        return []
+    return sorted(
+        path
+        for path in topic_dir.iterdir()
+        if path.is_file() and SLIDE_IMAGE_NAME_RE.match(path.name)
+    )
+
+
+def analysis_step2_complete(text: str) -> bool:
+    """True when analysis.md reflects completed Step 2 (SDK or skill format)."""
+    if "step_2_complete: true" in text:
+        return True
+    return "## Confirmed Preferences" in text
 
 
 def detect_content_signals(content: str) -> list[str]:
@@ -229,6 +310,25 @@ def ensure_extend_md(workspace: Path) -> None:
     (workspace / "slide-deck").mkdir(parents=True, exist_ok=True)
 
 
+def ensure_image_gen_extend_md(workspace: Path) -> None:
+    """Project EXTEND for baoyu-image-gen (non-interactive SDK full runs)."""
+    extend_dir = workspace / ".baoyu-skills" / "baoyu-image-gen"
+    extend_dir.mkdir(parents=True, exist_ok=True)
+    project_extend = extend_dir / "EXTEND.md"
+    if project_extend.is_file():
+        return
+    user_extend = (
+        Path.home() / ".baoyu-skills" / "baoyu-image-gen" / "EXTEND.md"
+    )
+    if user_extend.is_file():
+        project_extend.write_text(
+            user_extend.read_text(encoding="utf-8"),
+            encoding="utf-8",
+        )
+    else:
+        project_extend.write_text(IMAGE_GEN_EXTEND_MD, encoding="utf-8")
+
+
 def ensure_content_md(workspace: Path, content_src: Path) -> Path:
     if not content_src.is_file():
         msg = f"Content file not found: {content_src}"
@@ -333,20 +433,37 @@ def bootstrap_from_prompt(
     return ensure_analysis_md(workspace, content_text, merged)
 
 
-def build_runbook_appendix(bootstrap: WorkspaceBootstrap) -> str:
+def build_runbook_appendix(
+    bootstrap: WorkspaceBootstrap,
+    *,
+    full_pipeline: bool = False,
+    slide_count: int = 6,
+) -> str:
     analysis_rel = bootstrap.analysis_path.relative_to(
         bootstrap.content_path.parent,
     )
-    return f"""
+    base = f"""
 
 ## SDK slide-deck guard (extension)
 
 Non-interactive run. Do not use AskUserQuestion.
 
 - Analysis: `{analysis_rel}` (`step_2_complete: true`)
-- Topic dir: `slide-deck/{bootstrap.topic_slug}/`
+- Topic dir: `slide-deck/{bootstrap.topic_slug}/` (agent may pick another slug)
 - Start at **Step 3 (Generate Outline)**; do not redo Steps 1–2.
 - Read `source.md` in the topic directory before writing `outline.md`.
+"""
+    if not full_pipeline:
+        return base
+    return base + f"""
+- **Full pipeline (SDK)**: finish Steps 3–9 in this session without stopping
+  at outline.
+- After prompts, generate each slide image via **`/skill:baoyu-image-gen`**
+  (already loaded in this SDK session). Do **not** call provider HTTP APIs
+  directly; use only that skill's scripts.
+- Write PNGs beside `outline.md` in the topic dir (`01-slide-cover.png`, …).
+- Target slide count: **{slide_count}** (from `--slides`).
+- Merge PPTX/PDF with baoyu-slide-deck merge scripts when images exist.
 """
 
 

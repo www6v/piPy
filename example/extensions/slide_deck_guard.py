@@ -52,8 +52,18 @@ def register(api) -> None:
         if bootstrap is None:
             return None
         _STATE["last_bootstrap"] = bootstrap
+        full_pipeline = os.environ.get("SLIDE_DECK_FULL", "").lower() in {
+            "1",
+            "true",
+            "yes",
+        }
+        slide_count = int(os.environ.get("SLIDE_DECK_SLIDES", "6"))
         return {
-            "systemPrompt": system_prompt + build_runbook_appendix(bootstrap),
+            "systemPrompt": system_prompt + build_runbook_appendix(
+                bootstrap,
+                full_pipeline=full_pipeline,
+                slide_count=slide_count,
+            ),
         }
 
     def on_tool_call(event, ctx):

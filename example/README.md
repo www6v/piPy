@@ -14,6 +14,11 @@ Generate a slide deck with the **baoyu-slide-deck** skill. Missing
 `analysis.md` before Step 3 is handled by the **`slide_deck_guard` extension**
 (not by the main script writing analysis directly).
 
+**SDK-first**: one `create_agent_session` run drives the workflow. The driver
+loads skills into the session (`skill_paths`); the agent invokes
+`/skill:baoyu-slide-deck` and, for `--full`, `/skill:baoyu-image-gen` — not
+separate outer scripts or direct provider HTTP calls from the example code.
+
 | Component | Role |
 |-----------|------|
 | `baoyu-slide-deck.py` | Thin driver: workspace prep, session, prompt, verify |
@@ -37,17 +42,26 @@ Generate a slide deck with the **baoyu-slide-deck** skill. Missing
 
 ```bash
 # from repo root — outline only (default)
-python example/baoyu-slide-deck.py
+uv run python example/baoyu-slide-deck.py
 
-python example/baoyu-slide-deck.py --content ./my-article.md --workspace /tmp/slide-run
-python example/baoyu-slide-deck.py --full
-python example/baoyu-slide-deck.py --force-analysis
+uv run python example/baoyu-slide-deck.py --content ./my-article.md --workspace /tmp/slide-run
+uv run python example/baoyu-slide-deck.py --full --slides 3   # also loads baoyu-image-gen
+uv run python example/baoyu-slide-deck.py --force-analysis
 
-PIPY_MODEL=anthropic/claude-sonnet-4-5 python example/baoyu-slide-deck.py
+PIPY_MODEL=anthropic/claude-sonnet-4-5 uv run python example/baoyu-slide-deck.py
 ```
 
-Post-run: exits non-zero if `analysis.md` is missing, or outline-only without
-`outline.md`.
+**Full pipeline output** (under workspace, topic slug may differ from bootstrap):
+
+```
+slide-deck/{slug}/outline.md
+slide-deck/{slug}/prompts/*.md
+slide-deck/{slug}/01-slide-cover.png …
+slide-deck/{slug}/{slug}.pptx
+```
+
+Post-run: exits non-zero if `analysis.md` is missing; outline-only without
+`outline.md`; or `--full` without `prompts/` and `NN-slide-*.png` files.
 
 ```bash
 pytest example/tests -q
